@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+*.tsbuildinfo
+/secure-telegram-mcp-*.tgz
+
+# Secrets that can land in the working dir (NEVER commit) — see SECURITY INVARIANT #8
+# App state (sessions, config, audit log, QR) lives in ~/.secure-telegram-mcp, not here;
+# a recovery keyfile is written to an operator-chosen path, so guard it anyway.
+.env
+.env.*
+*.key
+
+# Crash/debug logs (npm; TELEGRAM_MCP_DEBUG_LOG when pointed here)
+*.log
+
+# Editor / OS / local tooling
+.DS_Store
+.idea/
+.vscode/
+.claude/
+coverage/
+
+# Local MCP client config — carries a live endpoint token (never commit)
+.mcp.json
+
+# Private project notes
+/.private/
+
+# Personal demo-recording tooling (only the rendered docs/onboarding.gif ships)
+/demo/
+/tests/demo/

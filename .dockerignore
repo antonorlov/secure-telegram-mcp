@@ -1,0 +1,17 @@
+node_modules
+dist
+.git
+.github
+tests
+coverage
+*.session
+*.session-journal
+.secrets
+secrets
+.env
+.env.*
+*.local.json
+audit
+*.audit.log
+*.log
+.DS_Store

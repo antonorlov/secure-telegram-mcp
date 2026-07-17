@@ -1,0 +1,85 @@
+{
+  "name": "secure-telegram-mcp",
+  "version": "0.1.0",
+  "description": "The secure Telegram MCP server: encrypted sessions, folder-scoped access, read-only by default. Per-endpoint API keys.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.10.0"
+  },
+  "bin": {
+    "secure-telegram-mcp": "bin/secure-telegram-mcp.js"
+  },
+  "files": [
+    "dist",
+    "docs/USAGE.md",
+    "ARCHITECTURE.md",
+    "README.md",
+    "SECURITY.md",
+    "telegram-mcp.config.example.json"
+  ],
+  "scripts": {
+    "prebuild": "node -e \"fs.rmSync('dist',{recursive:true,force:true})\"",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "lint": "eslint .",
+    "guard": "node scripts/check-architecture.mjs",
+    "knip": "knip",
+    "test": "vitest run",
+    "test:pty": "npm run build && INCLUDE_E2E=1 vitest run tests/e2e/setup-pty.test.ts",
+    "ci": "npm run typecheck && npm run lint && npm run guard && npm run knip && npm run test",
+    "dev": "node --import tsx/esm src/presentation/cli/main.ts",
+    "prepack": "npm run build && node scripts/check-dist.mjs"
+  },
+  "dependencies": {
+    "@inkjs/ui": "2.0.0",
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "ink": "5.2.1",
+    "qrcode": "1.5.4",
+    "react": "18.3.1",
+    "telegram": "2.26.22",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.4",
+    "@types/node": "24.13.2",
+    "@types/qrcode": "1.5.6",
+    "@types/react": "18.3.31",
+    "@vitest/coverage-v8": "4.1.9",
+    "eslint": "9.39.4",
+    "ink-testing-library": "4.0.0",
+    "knip": "5.88.1",
+    "node-pty": "1.0.0",
+    "tsx": "4.20.6",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.62.1",
+    "vitest": "4.1.9"
+  },
+  "keywords": [
+    "telegram",
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "claude",
+    "claude-desktop",
+    "telegram-api",
+    "gramjs",
+    "mtproto",
+    "security",
+    "encrypted",
+    "encryption",
+    "access-control",
+    "read-only",
+    "privacy",
+    "ai",
+    "llm"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/antonorlov/secure-telegram-mcp.git"
+  },
+  "homepage": "https://github.com/antonorlov/secure-telegram-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/antonorlov/secure-telegram-mcp/issues"
+  }
+}

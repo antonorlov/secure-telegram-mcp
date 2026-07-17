@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "killSwitch": {
+    "disabledVerbs": []
+  },
+  "maxDownloadBytes": 52428800,
+  "endpoints": [
+    {
+      "name": "support-reader",
+      "session": "main",
+      "scope": {
+        "chats": ["@acme_support", "-1001234567890"],
+        "folders": ["Work"]
+      },
+      "verbs": ["read", "mark_read"],
+      "hitl": { "confirmWrites": true },
+      "tokenHash": "0123456789abcdef0123456789abcdef$0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    },
+    {
+      "name": "ops-bot",
+      "session": "main",
+      "scope": {
+        "chats": ["me"],
+        "folders": [2]
+      },
+      "verbs": ["read", "read_media", "send", "draft", "react"],
+      "hitl": { "confirmWrites": true },
+      "tokenHash": "0123456789abcdef0123456789abcdef$0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    }
+  ]
+}

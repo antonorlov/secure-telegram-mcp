@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 120 120" role="img" aria-label="secure-telegram-mcp logo, inverse: white outlined message bubble with padlock and circuit traces">
+  <path d="M 35,26 H 85 A 17,17 0 0 1 102,43 V 69 A 17,17 0 0 1 85,86 H 35 A 17,17 0 0 1 18,69 V 43 A 17,17 0 0 1 35,26 Z"
+        fill="none" stroke="#ffffff" stroke-width="5.5" stroke-linejoin="round"/>
+  <path d="M 38,86 L 32,94 L 45,86" fill="none" stroke="#ffffff" stroke-width="5.5" stroke-linejoin="round" stroke-linecap="round"/>
+  <g transform="translate(22.8,20.0) scale(0.62)">
+    <path d="M 46,52 V 40 a14,14 0 0 1 28,0 V 52" fill="none" stroke="#ffffff" stroke-width="8" stroke-linecap="round"/>
+    <rect x="38" y="52" width="44" height="38" rx="9" fill="#ffffff"/>
+    <path d="M60,52 h14 a8,8 0 0 1 8,8 v22 a8,8 0 0 1 -8,8 h-14 z" fill="#ffffff" opacity="0.45"/>
+  </g>
+  <line x1="74" y1="50" x2="84" y2="50" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round"/>
+  <line x1="84" y1="50" x2="84" y2="42" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round"/>
+  <circle cx="84" cy="39" r="2.5" fill="#ffffff"/>
+  <line x1="74" y1="62" x2="86" y2="62" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round"/>
+  <circle cx="89" cy="62" r="2.5" fill="#ffffff"/>
+  <line x1="46" y1="66" x2="36" y2="66" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round"/>
+  <circle cx="33" cy="66" r="2.5" fill="#ffffff"/>
+</svg>

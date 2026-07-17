@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="188" viewBox="0 80 1200 188" role="img" aria-label="secure-telegram-mcp: all your Telegram accounts, one scoped endpoint per AI client">
+  <!-- mark: the locked message -->
+  <g transform="translate(150,152) scale(1.55) translate(-60,-58)">
+  <path d="M 35,26 H 85 A 17,17 0 0 1 102,43 V 69 A 17,17 0 0 1 85,86 H 35 A 17,17 0 0 1 18,69 V 43 A 17,17 0 0 1 35,26 Z"
+        fill="none" stroke="#ffffff" stroke-width="5.5" stroke-linejoin="round"/>
+  <path d="M 38,86 L 32,94 L 45,86" fill="none" stroke="#ffffff" stroke-width="5.5" stroke-linejoin="round" stroke-linecap="round"/>
+  <g transform="translate(22.8,20.0) scale(0.62)">
+    <path d="M 46,52 V 40 a14,14 0 0 1 28,0 V 52" fill="none" stroke="#ffffff" stroke-width="8" stroke-linecap="round"/>
+    <rect x="38" y="52" width="44" height="38" rx="9" fill="#ffffff"/>
+    <path d="M60,52 h14 a8,8 0 0 1 8,8 v22 a8,8 0 0 1 -8,8 h-14 z" fill="#ffffff" opacity="0.45"/>
+  </g>
+  <line x1="74" y1="50" x2="84" y2="50" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round"/>
+  <line x1="84" y1="50" x2="84" y2="42" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round"/>
+  <circle cx="84" cy="39" r="2.5" fill="#ffffff"/>
+  <line x1="74" y1="62" x2="86" y2="62" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round"/>
+  <circle cx="89" cy="62" r="2.5" fill="#ffffff"/>
+  <line x1="46" y1="66" x2="36" y2="66" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round"/>
+  <circle cx="33" cy="66" r="2.5" fill="#ffffff"/>
+  </g>
+
+  <!-- wordmark -->
+  <text x="320" y="140" font-family="ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, Consolas, monospace"
+        font-size="54" font-weight="700" fill="#e6edf3" letter-spacing="-1">secure-telegram-mcp</text>
+  <text x="322" y="188" font-family="ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, Consolas, monospace"
+        font-size="20" fill="#8ea3b8">All your accounts · one scoped endpoint per AI client</text>
+
+  <!-- feature chips -->
+  <g font-family="ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, Consolas, monospace" font-size="15">
+    <rect x="322" y="216" width="150" height="36" rx="18" fill="none" stroke="#4A90E2" stroke-opacity="0.6"/>
+    <text x="397" y="239" text-anchor="middle" fill="#7FB3EC">folder-scoped</text>
+    <rect x="488" y="216" width="210" height="36" rx="18" fill="none" stroke="#4A90E2" stroke-opacity="0.6"/>
+    <text x="593" y="239" text-anchor="middle" fill="#7FB3EC">read-only by default</text>
+    <rect x="714" y="216" width="140" height="36" rx="18" fill="none" stroke="#4A90E2" stroke-opacity="0.6"/>
+    <text x="784" y="239" text-anchor="middle" fill="#7FB3EC">AES-256-GCM</text>
+  </g>
+</svg>

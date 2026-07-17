@@ -1,0 +1,41 @@
+{
+  "compilerOptions": {
+    /* Language & module */
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "moduleDetection": "force",
+
+    /* JSX — Ink's React-for-CLI renderer (setup wizard only; LAZY-imported so
+       `connect` never loads it). The automatic runtime needs no in-scope React
+       import. .tsx lives ONLY under src/presentation/cli/ink/**. */
+    "jsx": "react-jsx",
+
+    /* Typecheck-only (emit lives in tsconfig.build.json) */
+    "noEmit": true,
+
+    /* Strictness — no 'any', fail closed at the type level */
+    "strict": true,
+    "noImplicitAny": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "useUnknownInCatchVariables": true,
+    "forceConsistentCasingInFileNames": true,
+
+    /* Interop */
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true
+  },
+  "include": ["src", "tests", "demo"],
+  "exclude": ["dist", "node_modules"]
+}
