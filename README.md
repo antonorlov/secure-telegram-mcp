@@ -10,7 +10,7 @@
 ![MCP Server](https://badge.mcpx.dev?type=server)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2020.10-5FA04E?logo=nodedotjs&logoColor=white)
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue)
-<!-- TODO after npm publish: [![npm](https://img.shields.io/npm/v/secure-telegram-mcp?color=CB3837&logo=npm)](https://www.npmjs.com/package/secure-telegram-mcp) -->
+[![npm](https://img.shields.io/npm/v/secure-telegram-mcp?color=CB3837&logo=npm)](https://www.npmjs.com/package/secure-telegram-mcp)
 [![CI](https://github.com/antonorlov/secure-telegram-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/antonorlov/secure-telegram-mcp/actions/workflows/ci.yml)
 
 ![Terminal demo: QR login, creating a read-only Work endpoint, and the resulting single-endpoint MCP client config.](./docs/onboarding.gif)
