@@ -26,9 +26,6 @@ coverage/
 # Local MCP client config — carries a live endpoint token (never commit)
 .mcp.json
 
-# Private project notes
-/.private/
-
 # Personal demo-recording tooling (only the rendered docs/onboarding.gif ships)
 /demo/
 /tests/demo/
