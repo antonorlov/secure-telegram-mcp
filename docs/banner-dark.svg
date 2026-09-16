@@ -6,5 +6,5 @@
 </g>
 <text x="320" y="140" font-size="54" font-weight="700" fill="#e6edf3" letter-spacing="-1">secure-telegram-mcp</text>
 <text x="322" y="188" font-size="20" fill="#8ea3b8">All your accounts · one scoped endpoint per AI client</text>
-<g font-size="15"><rect x="322" y="216" width="150" height="36" rx="18" fill="none" stroke="#4A90E2" stroke-opacity=".6"/><text x="397" y="239" text-anchor="middle" fill="#7FB3EC">folder-scoped</text><rect x="488" y="216" width="210" height="36" rx="18" fill="none" stroke="#4A90E2" stroke-opacity=".6"/><text x="593" y="239" text-anchor="middle" fill="#7FB3EC">read-only by default</text><rect x="714" y="216" width="140" height="36" rx="18" fill="none" stroke="#4A90E2" stroke-opacity=".6"/><text x="784" y="239" text-anchor="middle" fill="#7FB3EC">AES-256-GCM</text></g>
+<text x="322" y="238" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="20" font-weight="600" fill="#6EB4FF">folder-scoped<tspan fill="#44586E" font-weight="400">  ·  </tspan>read-only by default<tspan fill="#44586E" font-weight="400">  ·  </tspan>AES-256-GCM</text>
 </svg>
