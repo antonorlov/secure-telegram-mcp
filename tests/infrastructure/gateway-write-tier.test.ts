@@ -1,25 +1,7 @@
 /**
- * GramjsTelegramGateway WRITE TIER — the scoped adapter's send/edit/delete/
- * draft/mark-read/forward/react paths, driven through a fake TelegramClient via
- * the `clientFactory` seam (no network).
- *
- * Pinned here:
- *  - every write addresses Telegram ONLY through the scoped input handle, and
- *    the exact GramJS invocation shape (params, TL request fields) reaches the
- *    client;
- *  - an out-of-scope peer is rejected AclDenied BEFORE any client call;
- *  - forwardMessage scope-checks BOTH ends: an out-of-scope source and an
- *    out-of-scope destination are each rejected without a round-trip;
- *  - markRead's forum-topic branch requires maxMessageId and a genuine forum
- *    peer (ReadDiscussion on a non-forum would address the linked discussion
- *    group the operator never scoped);
- *  - a caller-supplied idempotency key replays the remembered result instead of
- *    sending twice;
- *  - garbage/mismatched pagination cursors are rejected Validation without a
- *    round-trip (peer, scope fan-out incl. out-of-bounds peerIndex, dialogs);
- *  - GramJS write-path throws map through the ONE shared error mapper
- *    (FORBIDDEN/BANNED -> AclDenied, TOPIC_CLOSED -> Validation, slow-mode ->
- *    FloodWait with retry seconds).
+ * The scoped adapter's write paths driven through a fake TelegramClient: every write addresses
+ * Telegram only through the scoped input handle, the exact GramJS invocation shape reaches the
+ * client, and an out-of-scope peer is rejected AclDenied before any client call.
  */
 import { describe, expect, it } from 'vitest';
 import { Api, errors, helpers } from 'telegram';
@@ -49,7 +31,7 @@ import { buildEndpoint, FakeClock } from '../application/_support.js';
 const USER_PEER = 101;
 const SECOND_USER_PEER = 102;
 const FORUM_CHANNEL_ID = 1234567890;
-/** The forum supergroup in OUR canonical marked-id space. */
+// The forum supergroup in OUR canonical marked-id space.
 const FORUM_MARKED_ID = -1001234567890;
 const OUT_OF_SCOPE = 999;
 const MESSAGE_DATE = 1_750_000_000; // 2025-06-15T15:06:40.000Z
@@ -58,7 +40,7 @@ const idOf = (value: number): ChatId => unwrap(ChatId.create(BigInt(value)));
 
 const peerOf = (value: number): PeerRef => PeerRefFactory.fromId(idOf(value));
 
-/** Encode a raw cursor payload exactly as the adapter's base64url wire format. */
+// Encode a raw cursor payload exactly as the adapter's base64url wire format.
 const rawCursor = (raw: string): string =>
   Buffer.from(raw, 'utf8').toString('base64url');
 
@@ -92,14 +74,12 @@ const inputForum = (): Api.InputPeerChannel =>
     accessHash: helpers.returnBigInt(0),
   });
 
-/**
- * GramJS types TL message-id fields as MessageIDLike; the adapter always sends
- * plain numbers, and a non-number here would fail the recorded-call assertion.
- */
+// GramJS types TL message-id fields as MessageIDLike; the adapter always sends plain numbers,
+// and a non-number here would fail the recorded-call assertion.
 const numericId = (value: unknown): number =>
   typeof value === 'number' ? value : -1;
 
-/** Readable identity of the input handle a call actually addressed. */
+// Readable identity of the input handle a call actually addressed.
 const peerKey = (peer: unknown): string => {
   if (peer instanceof Api.InputPeerUser) {
     return `user:${peer.userId.toString()}`;

@@ -1,14 +1,7 @@
 /**
- * Pure picker reducer — the load-bearing rules pinned here (the whole point of
- * the framework-free core), under the MEMBERSHIP-IS-ACCESS model (no inherit
- * layer, no group default — every member carries explicit bits):
- *   - id-keyed dedup across folders (a multi-folder chat is ONE selection entry)
- *   - r/w pick-up grants read (fresh r -> r, fresh w -> rw; write-only reachable)
- *   - r/w on the folder-unit row SET the whole folder (and track folderScope)
- *   - r/w with a visual range SET the range (vim-style: the op consumes it)
- *   - search-preserves-selection (id-keyed accumulation; clearing restores marks)
- *   - tri-state derivation (bottom-up over ALL children, never stored)
- *   - r/w GRANT actions inert while the search box is focused
+ * The load-bearing rules of the framework-free core under membership-is-access, where every
+ * member carries explicit bits: id-keyed dedup across folders, r/w pick-up granting read, SET
+ * semantics on the folder-unit row, and search preserving selection.
  */
 import { describe, it, expect } from 'vitest';
 import {
@@ -29,10 +22,6 @@ import {
   type PickerState,
   type Row,
 } from '../../src/presentation/cli/picker/index.js';
-
-// ---------------------------------------------------------------------------
-// Fixture builders
-// ---------------------------------------------------------------------------
 
 const folder = (
   id: string,
@@ -85,13 +74,13 @@ const baseState = (over: Partial<PickerState> = {}): PickerState => ({
 const run = (state: PickerState, ...actions: readonly PickerAction[]): PickerState =>
   actions.reduce(pickerReducer, state);
 
-/** Park the cursor on a row (production moves the cursor via `move` up/down). */
+// Park the cursor on a row (production moves the cursor via `move` up/down).
 const at = (state: PickerState, rowId: string): PickerState => ({
   ...state,
   cursorRowId: rowId,
 });
 
-/** Switch the active tab (production steps through the strip via next/prevTab). */
+// Switch the active tab (production steps through the strip via next/prevTab).
 const onTab = (state: PickerState, tabKey: string): PickerState => ({
   ...state,
   activeTabKey: tabKey,
@@ -99,13 +88,9 @@ const onTab = (state: PickerState, tabKey: string): PickerState => ({
 
 const RW = (read: boolean, write: boolean): AccessBits => ({ read, write });
 
-/** `r`/`w` on the row with this id (park the cursor, then toggle). */
+// `r`/`w` on the row with this id (park the cursor, then toggle).
 const press = (state: PickerState, rowId: string, axis: 'read' | 'write'): PickerState =>
   run(at(state, rowId), { type: 'toggleBit', axis });
-
-// ---------------------------------------------------------------------------
-// Factory + immutability
-// ---------------------------------------------------------------------------
 
 describe('createPickerState', () => {
   it('opens on the All tab with the cursor on its first chat and NOTHING in scope', () => {
@@ -134,10 +119,6 @@ describe('immutability', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// id-keyed dedup across folders
-// ---------------------------------------------------------------------------
-
 describe('id-keyed dedup across folders', () => {
   it('granting via one of two rows that share a chatKey grants BOTH (one entry)', () => {
     const s = press(baseState(), 'r-acme-c', 'read');
@@ -153,10 +134,6 @@ describe('id-keyed dedup across folders', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// cursor orthogonality
-// ---------------------------------------------------------------------------
-
 describe('cursor / access orthogonality', () => {
   it('move only touches the cursor, never selection', () => {
     const s = run(baseState(), { type: 'move', direction: 'down' });
@@ -169,10 +146,6 @@ describe('cursor / access orthogonality', () => {
     expect(s.cursorRowId).toBe('r-eng'); // already at the top
   });
 });
-
-// ---------------------------------------------------------------------------
-// tabs + windowing (unchanged by the access model)
-// ---------------------------------------------------------------------------
 
 describe('tab navigation', () => {
   it('the All tab lists every chat once (deduped), with NO folder rows', () => {
@@ -230,10 +203,6 @@ describe('viewport windowing (list-only scroll)', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// toggleBit — the ONE grant key (r/w)
-// ---------------------------------------------------------------------------
-
 describe('toggleBit on a chat (fresh r -> r, fresh w -> rw, unpick on last bit)', () => {
   it('fresh r -> read-only, fresh w -> read+write (write implies read on pick-up)', () => {
     let s = at(baseState(), 'r-eng');
@@ -271,10 +240,6 @@ describe('toggleBit on a chat (fresh r -> r, fresh w -> rw, unpick on last bit)'
     expect(s.selection.size).toBe(0);
   });
 });
-
-// ---------------------------------------------------------------------------
-// r/w on the folder-unit row — whole-folder access + folderScope tracking
-// ---------------------------------------------------------------------------
 
 describe('r/w on the folder-unit row (group management)', () => {
   const onWorkFolder = (): PickerState =>
@@ -371,9 +336,11 @@ describe('folderScope (folder-as-scope-unit tracking)', () => {
   });
 
   it('r/w on an unmarked EMPTY folder is a NO-OP — never an invisible scope-unit mark', () => {
-    // Silently adding a childless folder to folderScope would commit a folders[]
-    // ref that widens the ACL later, when the folder gains chats. The reducer
-    // must refuse to CREATE that state.
+    /**
+     * Silently adding a childless folder to folderScope would commit a folders[] ref that
+     * widens the ACL later, when the folder gains chats. The reducer must refuse to CREATE that
+     * state.
+     */
     const rows: Row[] = [
       { ...folder('f-empty', 'Empty', []), folderKey: '7' },
       chat('r-c1', 'c1', 'One', { depth: 0 }),
@@ -388,9 +355,11 @@ describe('folderScope (folder-as-scope-unit tracking)', () => {
   });
 
   it('a hydrate-authored empty-folder mark is VISIBLE (full) and r toggles it OFF', () => {
-    // Config-authored folders[] refs whose live membership is empty at edit time
-    // arrive via createPickerState's folderScope input. They must render as a
-    // selected scope unit (never an invisible commit) and be removable in place.
+    /**
+     * Config-authored folders[] refs whose live membership is empty at edit time arrive via
+     * createPickerState's folderScope input. They must render as a selected scope unit (never
+     * an invisible commit) and be removable in place.
+     */
     const emptyFolder: FolderRow = { ...folder('f-empty', 'Empty', []), folderKey: '7' };
     const rows: Row[] = [emptyFolder, chat('r-c1', 'c1', 'One', { depth: 0 })];
     const s0 = createPickerState({
@@ -420,10 +389,6 @@ describe('folderScope (folder-as-scope-unit tracking)', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// clearAccess (0/Backspace)
-// ---------------------------------------------------------------------------
-
 describe('clearAccess (remove from scope)', () => {
   it('on a member chat: drops the selection entry entirely', () => {
     let s = press(baseState(), 'r-eng', 'write');
@@ -437,10 +402,6 @@ describe('clearAccess (remove from scope)', () => {
     expect(pickerReducer(s, { type: 'clearAccess' })).toBe(s);
   });
 });
-
-// ---------------------------------------------------------------------------
-// tri-state + folder counts (derived)
-// ---------------------------------------------------------------------------
 
 describe('tri-state derivation', () => {
   const work = (): FolderRow => folder('f-work', 'Work', ['eng', 'rel', 'rnd']);
@@ -470,10 +431,6 @@ describe('tri-state derivation', () => {
     });
   });
 });
-
-// ---------------------------------------------------------------------------
-// visual range + bulk helpers
-// ---------------------------------------------------------------------------
 
 describe('visual range + r/w (SET over the range, then the range collapses)', () => {
   it('v .. move .. w sets read+write on every chat in the range', () => {
@@ -535,10 +492,6 @@ describe('shown-scoped bulk helpers', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// search / filter
-// ---------------------------------------------------------------------------
-
 describe('search preserves selection (id-keyed accumulation)', () => {
   it('filtering hides non-matches but keeps their marks; clearing restores them', () => {
     let s = press(baseState(), 'r-eng', 'read');
@@ -571,10 +524,6 @@ describe('search preserves selection (id-keyed accumulation)', () => {
     expect(s.cursorRowId).toBe('r-eng'); // 6 chats: wrapped fully around
   });
 });
-
-// ---------------------------------------------------------------------------
-// resolveEffective (thin projection of the explicit selection)
-// ---------------------------------------------------------------------------
 
 describe('resolveEffective', () => {
   it('non-member resolves to excluded with no access', () => {

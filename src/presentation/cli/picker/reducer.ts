@@ -1,23 +1,7 @@
 /**
- * Picker reducer — the pure state machine for the access picker. The inner core the
- * Ink layer renders and the Vitest suite pins; the load-bearing rules (id-keyed dedup,
- * membership-is-access, search-preserves-selection, tri-state derivation) live here.
- * Framework-free: no Ink/React/node:* — the Ink layer is a thin adapter mapping
- * keypresses to these actions and rendering the resulting state + selectors.
- *
- * Two orthogonal axes on distinct actions (membership IS access):
- *  - MOVE   : cursor only — `move` (never touches access).
- *  - ACCESS : `toggleBit` (lowercase r/w — grants/flips explicit bits, picking a chat
- *             up or, on the folder-unit row, setting the whole folder; with a visual
- *             range active it SETS the range), `clearAccess` (0/Backspace — remove from
- *             scope), `selectAllShown`/`invertShown` (read-only bulk helpers).
- *
- * r/w grant actions are inert while `focus === 'search'` (typing a name must never
- * grant write) — enforced inside the reducer, not the adapter.
- *
- * Everything immutable: every action returns a fresh state; the input is never mutated.
- * Selection is keyed by chat-id (`ChatKey`), so a chat surfaced under N folders is one
- * Map entry.
+ * Pure state machine for the access picker. The load-bearing rules live here: id-keyed dedup,
+ * membership-is-access, search-preserves-selection and tri-state derivation. Framework-free, so
+ * the Vitest suite pins it directly.
  */
 import { ALL_TAB } from './model.js';
 import type {
@@ -36,20 +20,14 @@ import type {
   TriState,
 } from './model.js';
 
-/** Default viewport height when the real terminal size is not yet known. */
 const DEFAULT_VIEWPORT_ROWS = 12;
 
 export type MoveDirection = 'up' | 'down';
 
-/**
- * The closed set of picker intents. Each maps to exactly one axis, so a binding can
- * never accidentally cross axes. Membership/selection actions never prompt; only the
- * write escalation (handled above the reducer) does.
- */
+// Each intent maps to exactly one axis, so a binding can never accidentally cross axes.
+// Membership actions never prompt; only the write escalation does, above the reducer.
 export type PickerAction =
-  // --- MOVE (cursor only) ---
   | { readonly type: 'move'; readonly direction: MoveDirection }
-  // --- TABS (horizontal folder tabs replace tree expand/collapse) ---
   | { readonly type: 'nextTab' } // ->/l
   | { readonly type: 'prevTab' } // <-/h
   | { readonly type: 'setViewportRows'; readonly rows: number } // terminal size -> window height
@@ -67,14 +45,12 @@ export type PickerAction =
   | { readonly type: 'searchPrev' } // N
   | { readonly type: 'setFocus'; readonly focus: PickerState['focus'] };
 
-// Implementation
-
 const NO_ACCESS: AccessBits = Object.freeze({ read: false, write: false });
-/** Security-first: everything is picked up READ-ONLY unless write is asked for. */
+// Security-first: everything is picked up READ-ONLY unless write is asked for.
 const READ_ONLY: AccessBits = Object.freeze({ read: true, write: false });
 const READ_WRITE: AccessBits = Object.freeze({ read: true, write: true });
 
-/** The explicit bits `r`/`w` cascade onto a folder / visual range (SET semantics). */
+// The explicit bits `r`/`w` cascade onto a folder / visual range (SET semantics).
 const axisBits = (axis: AccessAxis): AccessBits =>
   axis === 'write' ? READ_WRITE : READ_ONLY;
 
@@ -102,7 +78,6 @@ const clampIndex = (i: number, len: number): number =>
 
 const uniq = (keys: readonly ChatKey[]): ChatKey[] => [...new Set(keys)];
 
-/** Unique chat keys across a row tree, in tree order (a multi-folder chat once). */
 export const uniqueChatKeys = (rows: readonly Row[]): readonly ChatKey[] => {
   const seen = new Set<ChatKey>();
   const out: ChatKey[] = [];
@@ -114,8 +89,6 @@ export const uniqueChatKeys = (rows: readonly Row[]): readonly ChatKey[] => {
   }
   return out;
 };
-
-// --- fuzzy filter (case-insensitive subsequence) -------------------------------
 
 const fuzzyMatch = (query: string, target: string): boolean => {
   const q = query.toLowerCase();
@@ -132,23 +105,15 @@ const chatMatches = (query: string, row: ChatRow): boolean =>
   fuzzyMatch(query, row.title) ||
   (row.username !== undefined && fuzzyMatch(query, row.username));
 
-// --- tab projection (which rows belong to the active tab) ----------------------
-
 const EMPTY_KEYS: ReadonlySet<ChatKey> = new Set<ChatKey>();
 
-/**
- * Default DISPLAY rank of a chat row: `me` first, then chats selected WHEN THE
- * PICKER OPENED, then the rest. Snapshot-based (not the live selection) so nothing
- * jumps mid-session.
- */
+// Snapshot-based, not the live selection, so nothing jumps mid-session: `me` first, then the
+// chats selected when the picker opened, then the rest.
 const displayRank = (row: ChatRow, selected: ReadonlySet<ChatKey>): number =>
   row.chatKind === 'self' ? 0 : selected.has(row.chatKey) ? 1 : 2;
 
-/**
- * Order a flat chat list for display: selected-at-open first, then Telegram's native
- * last-activity order (`activityRank`) within each band. Stable, so equal ranks keep
- * incoming order.
- */
+// Selected-at-open first, then Telegram's native last-activity order within each band. Stable,
+// so equal ranks keep their incoming order.
 const orderChats = (
   chats: readonly ChatRow[],
   selected: ReadonlySet<ChatKey>,
@@ -160,7 +125,6 @@ const orderChats = (
         (b.activityRank ?? Number.MAX_SAFE_INTEGER),
   );
 
-/** The ALL tab: one chat row per chat id (dedup across folders), no folder rows. */
 const allTabRows = (
   rows: readonly Row[],
   selected: ReadonlySet<ChatKey>,
@@ -176,11 +140,8 @@ const allTabRows = (
   return orderChats(chats, selected);
 };
 
-/**
- * A folder tab: the folder's OWN row (the "select whole folder as a unit" toggle)
- * followed by its member chats — SELECTED-at-open first, then last activity. `rows`
- * is a pre-order DFS with the folder at depth d and its children deeper.
- */
+// The folder's own "whole folder as a unit" row followed by its member chats, selected-at-open
+// first. `rows` is a pre-order DFS with the folder at depth d.
 const folderTabRows = (
   rows: readonly Row[],
   tabKey: TabKey,
@@ -200,7 +161,6 @@ const folderTabRows = (
   return [folder, ...orderChats(members, selected)];
 };
 
-/** The rows scoped to the active tab, BEFORE the fuzzy filter is applied. */
 const activeTabRows = (state: PickerState): Row[] => {
   const selected = state.orderSelectedKeys ?? EMPTY_KEYS;
   return state.activeTabKey === ALL_TAB
@@ -208,7 +168,6 @@ const activeTabRows = (state: PickerState): Row[] => {
     : folderTabRows(state.rows, state.activeTabKey, selected);
 };
 
-/** The currently-visible rows in the active tab after fuzzy filter (pre-window). */
 export const selectVisibleRows = (state: PickerState): readonly Row[] => {
   const base = activeTabRows(state);
   const q = state.query.trim();
@@ -218,7 +177,7 @@ export const selectVisibleRows = (state: PickerState): readonly Row[] => {
   return base.filter((r) => r.kind === 'folder' || chatMatches(q, r));
 };
 
-/** Rows shown vs total in the active tab, by unique chat id (a multi-folder chat counts once). */
+// Rows shown vs total in the active tab, by unique chat id (a multi-folder chat counts once).
 export const selectShownCounts = (
   state: PickerState,
 ): { readonly shown: number; readonly total: number } => {
@@ -231,7 +190,6 @@ export const selectShownCounts = (
   return { shown: shown.size, total: total.size };
 };
 
-/** The horizontal tab strip with per-tab member/total badges (derived, unstored). */
 export const selectTabs = (state: PickerState): readonly PickerTab[] => {
   const tabs: PickerTab[] = [];
   const allKeys = new Set<ChatKey>();
@@ -264,9 +222,9 @@ export const selectTabs = (state: PickerState): readonly PickerTab[] => {
 };
 
 /**
- * Window the active tab's filtered rows to `viewportRows`, centred on the cursor
- * so it stays on-screen while the LIST (not the whole screen) scrolls. Reports the
- * hidden-above/below counts that drive the `↑ N` / `↓ N` scroll indicators.
+ * Windows the filtered rows around the cursor so it stays on-screen while the list, not the
+ * whole screen, scrolls. Reports the hidden-above and hidden-below counts behind the scroll
+ * indicators.
  */
 export const selectWindow = (state: PickerState): PickerWindow => {
   const vis = selectVisibleRows(state);
@@ -291,12 +249,8 @@ export const selectWindow = (state: PickerState): PickerWindow => {
   };
 };
 
-// --- effective resolution + tri-state -----------------------------------------
-
-/**
- * Resolve a chat's effective access: precedence override > group-default >
- * excluded. Mirrors the domain `effectiveVerbPermits` precedence in bit form.
- */
+// Precedence override > group-default > excluded, mirroring the domain's `effectiveVerbPermits`
+// in bit form.
 export const resolveEffective = (
   state: PickerState,
   chatKey: ChatKey,
@@ -307,17 +261,18 @@ export const resolveEffective = (
     : { member: true, bits };
 };
 
-/** Tri-state for a folder — DERIVED bottom-up over ALL `childChatKeys`. */
+// Tri-state for a folder — DERIVED bottom-up over ALL `childChatKeys`.
 export const deriveFolderTriState = (
   state: PickerState,
   folder: FolderRow,
 ): TriState => {
   const keys = uniq(folder.childChatKeys);
   if (keys.length === 0) {
-    // A childless folder can still be a config-authored scope UNIT (hydrated
-    // into `folderScope`); it must render selected — an invisible mark would
-    // silently commit a `folders[]` ref that widens the ACL once the folder
-    // gains chats.
+    /**
+     * A childless folder can still be a config-authored scope UNIT, and it must render
+     * selected: an invisible mark would silently commit a `folders[]` ref that widens the ACL
+     * once the folder gains chats.
+     */
     return folder.folderKey !== undefined &&
       state.folderScope.has(folder.folderKey)
       ? 'full'
@@ -330,7 +285,6 @@ export const deriveFolderTriState = (
   return 'partial';
 };
 
-/** Member/writable tallies for a folder ("3 of 8", "1 writable") — derived. */
 export const selectFolderCounts = (
   state: PickerState,
   folder: FolderRow,
@@ -348,8 +302,6 @@ export const selectFolderCounts = (
   return { members, total: keys.length, writable };
 };
 
-// --- cursor helpers ------------------------------------------------------------
-
 const moveCursor = (state: PickerState, direction: MoveDirection): PickerState => {
   const vis = selectVisibleRows(state);
   if (vis.length === 0) {
@@ -366,7 +318,6 @@ const moveCursor = (state: PickerState, direction: MoveDirection): PickerState =
   return target === undefined ? state : { ...state, cursorRowId: target.id };
 };
 
-/** Keep the cursor on a still-visible row (used after filter changes). */
 const withClampedCursor = (state: PickerState): PickerState => {
   const vis = selectVisibleRows(state);
   if (vis.length === 0) {
@@ -391,9 +342,6 @@ const cycleChat = (state: PickerState, dir: 1 | -1): PickerState => {
   return target === undefined ? state : { ...state, cursorRowId: target.id };
 };
 
-// --- tabs ---------------------------------------------------------------------
-
-/** Move the cursor to the FIRST row of the (new) active tab; clear any range. */
 const withCursorOnFirst = (state: PickerState): PickerState => {
   const first = selectVisibleRows(state)[0];
   return { ...state, cursorRowId: first?.id, visualAnchorRowId: undefined };
@@ -404,7 +352,6 @@ const switchToTab = (state: PickerState, tabKey: TabKey): PickerState =>
     ? state
     : withCursorOnFirst({ ...state, activeTabKey: tabKey });
 
-/** Step the active tab left/right, clamped at the ends (no wrap). */
 const stepTab = (state: PickerState, dir: 1 | -1): PickerState => {
   const keys = selectTabs(state).map((t) => t.key);
   const idx = keys.indexOf(state.activeTabKey);
@@ -413,17 +360,10 @@ const stepTab = (state: PickerState, dir: 1 | -1): PickerState => {
   return target === undefined ? state : switchToTab(state, target);
 };
 
-// --- access helpers (membership IS access) -------------------------------------
-
 /**
- * TOGGLE one access bit for the cursor chat (lowercase r/w) AND pick/unpick it:
- *  - a NON-member is PICKED UP with READ always granted, so `r` -> read-only and
- *    `w` -> read+write (WRITE IMPLIES READ — the common "make it writable" intent);
- *  - a MEMBER flips just that axis of its explicit bits, so dropping read from an
- *    rw chat yields the rarer WRITE-ONLY (send-only) state — still reachable;
- *  - MEMBERSHIP FOLLOWS ACCESS: clearing the LAST bit UNPICKS the chat.
- * So a fresh `r` -> `r`, a fresh `w` -> `rw`; on `rw`, `r` -> `w` (send-only) and
- * `w` -> `r`; clearing the last bit removes the chat from scope.
+ * A NON-member is picked up with READ always granted, so `r` gives read-only and `w` gives
+ * read+write — write implies read, the common "make it writable" intent. A MEMBER just flips
+ * that one axis.
  */
 const toggleChatBit = (state: PickerState, axis: AccessAxis): PickerState => {
   const row = currentRow(state);
@@ -438,11 +378,8 @@ const toggleChatBit = (state: PickerState, axis: AccessAxis): PickerState => {
   return { ...state, selection: withBits(state.selection, row.chatKey, next) };
 };
 
-/**
- * The explicit bits shared by EVERY child chat — defined only when the folder is
- * FULLY in scope with uniform access. The precondition for treating the folder
- * as ONE toggleable unit (mixed/partial folders are SET, not flipped).
- */
+// Defined only when the folder is FULLY in scope with uniform access — the precondition for
+// treating it as one toggleable unit, since mixed folders are SET rather than flipped.
 export const uniformFolderBits = (
   state: PickerState,
   folder: FolderRow,
@@ -460,20 +397,9 @@ export const uniformFolderBits = (
 };
 
 /**
- * r/w on the folder-unit row — the folder behaves like ONE BIG CHAT:
- *  - a none/partial/mixed folder is SET (`r` -> read-only, `w` -> read+write on
- *    every child, picking them up);
- *  - a FULL, UNIFORM folder FLIPS that one axis exactly like a chat row, so `r`
- *    on a read-only folder DESELECTS it, `w` on an rw folder drops to read-only;
- *  - MEMBERSHIP FOLLOWS ACCESS: clearing the last bit unpicks every child.
- * `folderScope` (the folder-as-scope-unit mark -> config `folders[]`) tracks the
- * same transition: granted -> add, deselected -> remove.
- *
- * An EMPTY folder (no enumerated member chats) cannot be GRANTED from the
- * picker: there is nothing visible to grant, and the committed `folders[]` ref
- * would silently WIDEN the ACL later when the folder gains chats. A
- * config-authored empty-folder ref still round-trips via `hydrate` — it renders
- * as a selected scope unit, and r/w (like Backspace) toggles the mark OFF.
+ * The folder-unit row behaves like ONE BIG CHAT: a none, partial or mixed folder is SET (`r`
+ * read-only, `w` read+write on every child), while a FULL, UNIFORM folder flips that one axis
+ * exactly like a chat row.
  */
 const setFolderAccess = (
   state: PickerState,
@@ -505,10 +431,8 @@ const setFolderAccess = (
   return { ...state, selection: next, folderScope };
 };
 
-/**
- * 0/Backspace — REMOVE from scope: a chat row drops its selection entry; the
- * folder-unit row unpicks every child AND clears the folder's scope-unit mark.
- */
+// A chat row drops its selection entry; the folder-unit row unpicks every child and clears the
+// folder's scope-unit mark.
 const clearAccess = (state: PickerState): PickerState => {
   const row = currentRow(state);
   if (row === undefined) return state;
@@ -523,8 +447,6 @@ const clearAccess = (state: PickerState): PickerState => {
   return { ...state, selection: next, folderScope };
 };
 
-// --- batch / shown-scoped ops -------------------------------------------------
-
 const shownChatKeys = (state: PickerState): ChatKey[] =>
   uniq(
     selectVisibleRows(state)
@@ -532,7 +454,7 @@ const shownChatKeys = (state: PickerState): ChatKey[] =>
       .map((r) => r.chatKey),
   );
 
-/** `a` — every shown chat into scope; new pick-ups are READ-ONLY, existing bits stay. */
+// `a` — every shown chat into scope; new pick-ups are READ-ONLY, existing bits stay.
 const selectAllShown = (state: PickerState): PickerState => {
   const next = new Map(state.selection);
   for (const k of shownChatKeys(state)) {
@@ -541,7 +463,7 @@ const selectAllShown = (state: PickerState): PickerState => {
   return { ...state, selection: next };
 };
 
-/** `i` — members drop out of scope; non-members come in READ-ONLY. */
+// `i` — members drop out of scope; non-members come in READ-ONLY.
 const invertShown = (state: PickerState): PickerState => {
   const next = new Map(state.selection);
   for (const k of shownChatKeys(state)) {
@@ -551,7 +473,6 @@ const invertShown = (state: PickerState): PickerState => {
   return { ...state, selection: next };
 };
 
-/** Keys in the visual range (anchor..cursor inclusive) when one is active. */
 const visualRangeChatKeys = (state: PickerState): ChatKey[] => {
   if (state.visualAnchorRowId === undefined) return [];
   const vis = selectVisibleRows(state);
@@ -567,11 +488,8 @@ const visualRangeChatKeys = (state: PickerState): ChatKey[] => {
   );
 };
 
-/**
- * r/w with a VISUAL RANGE active — SET semantics over the whole range (`r` ->
- * read-only, `w` -> read+write), then the range collapses (vim-style: the
- * operation consumes the selection).
- */
+// SET semantics over the whole range, then the range collapses — vim-style, the operation
+// consumes the selection.
 const setRangeAccess = (state: PickerState, axis: AccessAxis): PickerState => {
   const targets = visualRangeChatKeys(state);
   if (targets.length === 0) return { ...state, visualAnchorRowId: undefined };
@@ -581,9 +499,6 @@ const setRangeAccess = (state: PickerState, axis: AccessAxis): PickerState => {
   return { ...state, selection: next, visualAnchorRowId: undefined };
 };
 
-// --- the reducer --------------------------------------------------------------
-
-/** The pure reducer: total, immutable, no side effects. */
 export const pickerReducer = (
   state: PickerState,
   action: PickerAction,
@@ -660,7 +575,6 @@ export const pickerReducer = (
 
 // State factory (pure) — assembles a normalized initial state from a row tree. Used by
 // the Ink adapter and the test suite so neither hand-builds invariants.
-
 export interface CreatePickerStateInput {
   readonly endpointName: string;
   readonly rows: readonly Row[];

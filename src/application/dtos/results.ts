@@ -1,13 +1,9 @@
-/**
- * Write-side result DTOs — acknowledgements returned by command use-cases (a
- * minimal ack, not a full read model).
- */
 
 export interface SendResultDto {
   readonly chatId: string;
   readonly messageId: number;
   readonly dateIso: string;
-  /** The random_id used for idempotent dedup; echoed for traceability. */
+  // The random_id used for idempotent dedup.
   readonly idempotencyKey: string;
 }
 
@@ -20,7 +16,6 @@ export interface EditResultDto {
 export interface DeleteResultDto {
   readonly chatId: string;
   readonly deletedMessageIds: readonly number[];
-  /** Whether the delete revoked for everyone (default false). */
   readonly revoked: boolean;
 }
 
@@ -40,19 +35,14 @@ export interface ForwardResultDto {
   readonly forwardedMessageIds: readonly number[];
 }
 
-/** Minimal ack for a reaction write (verb `react`). Safe scalars only. */
 export interface ReactionResultDto {
   readonly chatId: string;
   readonly messageId: number;
-  /** The single emoji that was set (echoed for traceability). */
   readonly emoji: string;
 }
 
-/**
- * Opaque media handle for the two-phase send_media flow. The handle is bound to
- * session + scope + a TTL; the raw path is NEVER re-supplied by the model — it
- * passes back only this handle.
- */
+// Bound to session, scope and a TTL; the model passes back only this handle, never the raw
+// path.
 export interface MediaHandleDto {
   readonly handle: string;
   readonly expiresAtIso: string;

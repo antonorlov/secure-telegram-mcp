@@ -1,6 +1,4 @@
-/**
- * Theme — the pure read-out formatters + the NO_COLOR-safe colour resolution.
- */
+// Theme — the pure read-out formatters + the NO_COLOR-safe colour resolution.
 import { describe, it, expect } from 'vitest';
 import {
   classifyNoticeLine,

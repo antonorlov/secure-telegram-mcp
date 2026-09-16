@@ -23,7 +23,7 @@ const unusedRepository: ConfigRepository = {
     ),
 };
 
-/** Exercise the production validate -> seal -> publish use case with cheap test KDFs. */
+// Exercise the production validate -> seal -> publish use case with cheap test KDFs.
 export const applyConfigDraftForTest = async (input: {
   readonly configPath: string;
   readonly sessionDir: string;

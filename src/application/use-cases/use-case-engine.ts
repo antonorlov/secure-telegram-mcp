@@ -1,21 +1,10 @@
 /**
- * Use-case ENGINE — the ONE home for the read/write orchestration every tool's
- * use-case shares. Two engine builders turn a small per-use-case SPEC into a
- * `UseCase<I, O>`; the shared resolve -> ACL -> (gate|HITL+quota) -> run -> audit
- * logic lives here once instead of across 14 subclasses.
- *
- * READ order (`makeReadUseCase`): resolve peers -> ACL (verb + per-target scope,
- * or a single no-target eval for scope-wide reads) -> optional post-ACL `gate`
- * (read-side quota for the search fan-out) -> scoped read. A denied read audits
- * DENY and fails closed BEFORE the gate, so a doomed read never draws quota; a
- * successful read is not audited (the log records writes + denials, not reads).
- *
- * WRITE order (`makeWriteUseCase`), strict so a doomed/unconfirmed request
- * consumes neither quota nor a human's attention: resolve -> ACL -> HITL confirm
- * (when the endpoint requires it; BEFORE quota because the RateLimiter has no
- * refund) -> anti-ban quota (keyed per session) -> scoped write -> audit ALLOW
- * (with idempotency key) / DENY(error). Every fail-closed branch appends a DENY
- * audit record.
+ * The shared read/write orchestration behind every tool's use-case.
+ * READ: resolve peers -> ACL -> optional gate (read-side quota) -> scoped read. A denied read
+ * audits DENY and fails closed BEFORE the gate, so a doomed read never draws quota; successful
+ * reads are not audited.
+ * WRITE: ACL -> HITL -> quota -> run -> audit. That order matters: a declined write must spend
+ * no anti-ban quota, since the port has no refund.
  */
 import { err, ok, type Result } from '../../shared/index.js';
 import { PermissionVerb } from '../../domain/index.js';
@@ -35,29 +24,19 @@ import {
   primaryKeyOf,
 } from './use-case-support.js';
 
-// ---------------------------------------------------------------------------
-// Injected collaborator bundles
-// ---------------------------------------------------------------------------
-
-/** Collaborators every read use-case needs (queries: ACL + audit only). */
 export interface ReadUseCaseDeps {
   readonly aclEvaluator: DefaultAclEvaluator;
   readonly auditLog: AuditLog;
   readonly clock: Clock;
-  /** Anti-ban limiter: only the search gate consumes read-side quota. */
+  // Anti-ban limiter: only the search gate consumes read-side quota.
   readonly rateLimiter: RateLimiter;
 }
 
-/** Collaborators every write use-case needs (ACL + quota + HITL + audit). */
 export interface WriteUseCaseDeps extends ReadUseCaseDeps {
   readonly confirmer: Confirmer;
 }
 
-// ---------------------------------------------------------------------------
-// Shared helpers
-// ---------------------------------------------------------------------------
-
-/** Resolve each `PeerRef` through the scoped client (fail-closed, in order). */
+// Resolve each `PeerRef` through the scoped client (fail-closed, in order).
 const resolveTargets = async (
   ctx: EndpointExecutionContext,
   peers: readonly PeerRef[],
@@ -73,44 +52,31 @@ const resolveTargets = async (
   return ok(Object.freeze(targets));
 };
 
-/** Structured detail for a DENY / ALLOW audit record (no untrusted prose). */
 interface AuditExtra {
   readonly reason?: string;
   readonly idempotencyKey?: string;
 }
 
-/** The dominant input shape: a command/query addressing exactly one peer. */
 interface SinglePeerInput {
   readonly peer: PeerRef;
 }
 
-/**
- * A spec's peer hooks: which peers to resolve + scope-check and the primary
- * audit/HITL key. Both DEFAULT to the dominant single-peer shape —
- * `[input.peer]` / `primaryKeyOf(input.peer)` — and may be omitted ONLY when
- * `TInput` carries `peer: PeerRef`; every other input (scope-wide reads,
- * forward's two peers) must spell both out (compile-time constraint).
- */
-type PeerHooks<TInput> = TInput extends SinglePeerInput
-  ? {
-      readonly peers?: (input: TInput) => readonly PeerRef[];
-      readonly targetKey?: (input: TInput) => string | undefined;
-    }
-  : {
-      readonly peers: (input: TInput) => readonly PeerRef[];
-      readonly targetKey: (input: TInput) => string | undefined;
-    };
-
-/** Resolve a spec's peer hooks, applying the single-peer defaults. */
-const peerHooksOf = <TInput>(
-  spec: PeerHooks<TInput>,
-): {
+interface ResolvedPeerHooks<TInput> {
   readonly peers: (input: TInput) => readonly PeerRef[];
   readonly targetKey: (input: TInput) => string | undefined;
-} => ({
-  // The defaults are reachable only when TInput extends SinglePeerInput (the
-  // hooks are required otherwise), so the assertions are sound; a mistake
-  // still fails closed at resolvePeer.
+}
+
+// Peer hooks default to the single-peer shape; inputs that do not carry `peer: PeerRef`
+// (scope-wide reads, forward's two peers) must spell both out — a compile-time constraint.
+type PeerHooks<TInput> = TInput extends SinglePeerInput
+  ? Partial<ResolvedPeerHooks<TInput>>
+  : ResolvedPeerHooks<TInput>;
+
+const peerHooksOf = <TInput>(
+  spec: PeerHooks<TInput>,
+): ResolvedPeerHooks<TInput> => ({
+  // The defaults are reachable only when TInput extends SinglePeerInput, so the assertions are
+  // sound; a mistake still fails closed at resolvePeer.
   peers:
     spec.peers ??
     ((input): readonly PeerRef[] => [(input as TInput & SinglePeerInput).peer]),
@@ -120,39 +86,22 @@ const peerHooksOf = <TInput>(
       primaryKeyOf((input as TInput & SinglePeerInput).peer)),
 });
 
-// ---------------------------------------------------------------------------
-// Read engine
-// ---------------------------------------------------------------------------
-
-/**
- * A read use-case's unique content. Everything else (resolve/ACL/deny-audit) is
- * the shared engine. `gate` is the only hook: a read that AMPLIFIES into many
- * gateway calls (search fan-out) reserves read-side quota here, post-ACL, from
- * the shared deps bundle.
- */
+// `gate` is the only hook: a read that amplifies into many gateway calls (the search fan-out)
+// reserves read-side quota here, post-ACL.
 export type ReadSpec<TInput, TOutput> = PeerHooks<TInput> & {
-  /**
-   * The single verb this read requires. Default `read`; a media-EGRESS read
-   * (download_media) declares `read_media`, which the scoped data layer ALSO
-   * re-checks per-chat, so the two gates agree on the verb.
-   */
+  // Default `read`; a media-egress read declares `read_media`, which the scoped data layer
+  // re-checks per chat.
   readonly verb?: PermissionVerb;
-  /** Delegate to the scoped reader once ACL (and any gate) has allowed. */
   readonly run: (
     reader: ScopedReader,
     input: TInput,
   ) => Promise<Result<TOutput, AppError>>;
-  /** Optional post-ACL, pre-read gate (read-side quota). Default: free. */
   readonly gate?: (
     ctx: EndpointExecutionContext,
     input: TInput,
     deps: ReadUseCaseDeps,
   ) => Promise<Result<void, AppError>>;
-  /**
-   * Append an ALLOW audit record on SUCCESS (the read log otherwise records only
-   * denials). Used by media EGRESS to attempt an ALLOW audit record after each
-   * successful download. Sink failures are reported out of band by the adapter.
-   */
+  // Appends an ALLOW record on success — the read log otherwise records only denials.
   readonly auditSuccess?: boolean;
 };
 
@@ -199,8 +148,7 @@ export const makeReadUseCase = <TInput, TOutput>(
         return err(aclDeniedError(failure.decision));
       }
 
-      // Post-ACL gate (read-side quota) — runs AFTER ACL so a denied request
-      // never draws quota; a refusal is a security-relevant DENY audit record.
+      // Post-ACL so a denied request never draws quota; a refusal is a DENY audit record.
       if (spec.gate !== undefined) {
         const gated = await spec.gate(ctx, input, deps);
         if (!gated.ok) {
@@ -210,9 +158,8 @@ export const makeReadUseCase = <TInput, TOutput>(
       }
 
       const result = await spec.run(ctx.client, input);
-      // Attempt an ALLOW record for successful media egress; the read log
-      // otherwise records only denials. A sink failure is loud but does not turn
-      // an already-completed download into a false failure response.
+      // A sink failure is loud but must not turn an already-completed download into a false
+      // failure.
       if (spec.auditSuccess === true && result.ok) {
         await deps.auditLog.append(
           buildAuditRecord(deps.clock, ctx.endpoint.name, verb, {
@@ -226,40 +173,23 @@ export const makeReadUseCase = <TInput, TOutput>(
   };
 };
 
-// ---------------------------------------------------------------------------
-// Write engine
-// ---------------------------------------------------------------------------
-
-/** A write use-case's unique content; the shared engine hosts the ordering. */
 export type WriteSpec<TInput, TOutput> = PeerHooks<TInput> & {
-  /** The single verb this command requires. */
   readonly verb: PermissionVerb;
-  /** The anti-ban bucket this command draws from. */
   readonly bucket: QuotaBucket;
-  /** Operator-facing, structured HITL description (no untrusted prose). */
+  // Operator-facing and structured — never untrusted prose.
   readonly description: string;
-  /**
-   * Optional PER-TARGET verbs, aligned 1:1 with `peers`, for a command that reads
-   * one peer and writes another: `forward` requires `read` on the SOURCE and
-   * `forward` on the DESTINATION, not the same verb on both. Omit for the common
-   * single-verb path (every target checked against `verb`). The quota bucket, HITL,
-   * and audit-record verb stay `verb` (the operation's identity).
-   */
+  // Per-target verbs for a command that reads one peer and writes another: forward needs `read`
+  // on the source and `forward` on the destination. Quota, HITL and the audit verb stay `verb`.
   readonly peerVerbs?: (input: TInput) => readonly PermissionVerb[];
-  /** Delegate to the scoped writer after all gates pass. */
   readonly run: (
     writer: ScopedWriter,
     input: TInput,
   ) => Promise<Result<TOutput, AppError>>;
-  /**
-   * Audit/HITL key from the RESOLVED targets when the input carried no `id`
-   * peer. Default: the single resolution (single-target commands). Forward
-   * overrides this to pick its DESTINATION so the approver sees where it goes.
-   */
+  // Forward overrides this to pick its DESTINATION, so the approver sees where the message
+  // goes.
   readonly fallbackTargetKey?: (
     targets: readonly ChatId[],
   ) => string | undefined;
-  /** Idempotency key to record from the result (sends echo theirs). */
   readonly auditKey?: (output: TOutput) => string | undefined;
 };
 
@@ -289,8 +219,7 @@ export const makeWriteUseCase = <TInput, TOutput>(
         extra: AuditExtra,
         overrideTargetKey?: string,
       ): Promise<Result<void, AppError>> => {
-        // A per-target ACL deny records the FAILING target (e.g. forward's source),
-        // not the default primary/destination key.
+        // A per-target ACL deny records the FAILING target, not the default primary key.
         const auditTargetKey = overrideTargetKey ?? targetKey;
         return deps.auditLog.append(
           buildAuditRecord(deps.clock, ctx.endpoint.name, spec.verb, {
@@ -311,9 +240,8 @@ export const makeWriteUseCase = <TInput, TOutput>(
         return err(resolvedTargets.error);
       }
 
-      // 1. ACL — each addressed peer against ITS required verb (default `spec.verb`;
-      //    a spec may declare per-target verbs, e.g. forward = read(src)+forward(dst)).
-      //    A deny audits the FAILING target so the record pinpoints where it stopped.
+      // 1. ACL — each addressed peer against its required verb; a deny audits the failing
+      // target.
       const perTargetVerbs = spec.peerVerbs?.(input);
       const failure = firstAclFailure(deps.aclEvaluator, ctx, {
         verb: spec.verb,
@@ -329,8 +257,8 @@ export const makeWriteUseCase = <TInput, TOutput>(
         return err(aclDeniedError(failure.decision));
       }
 
-      // 2. HITL confirmation, BEFORE quota (a declined write never touches
-      //    Telegram, so it must spend no anti-ban quota — the port has no refund).
+      // 2. HITL before quota: a declined write never touches Telegram, so it must spend no
+      // quota.
       if (ctx.endpoint.requiresConfirmation(spec.verb)) {
         const confirmation = await deps.confirmer.requestConfirmation({
           endpointName: ctx.endpoint.name,
@@ -353,8 +281,8 @@ export const makeWriteUseCase = <TInput, TOutput>(
         }
       }
 
-      // 3. Anti-ban quota (keyed per SESSION — one budget + breaker per shared
-      //    account, not per endpoint name).
+      // 3. Quota keyed per SESSION — one budget and breaker per shared account, not per
+      // endpoint.
       const quota = await deps.rateLimiter.tryConsume({
         endpointName: ctx.endpoint.name,
         sessionRef: ctx.endpoint.sessionRef,

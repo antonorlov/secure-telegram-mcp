@@ -1,4 +1,4 @@
-/** The temporary account-login client must release its auth key before reuse. */
+// The temporary account-login client must release its auth key before reuse.
 import { describe, expect, it } from 'vitest';
 import type { TelegramClient } from 'telegram';
 

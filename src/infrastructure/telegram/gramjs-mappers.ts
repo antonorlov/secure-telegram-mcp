@@ -1,14 +1,9 @@
 /**
- * gramjs-mappers — PURE translation between GramJS (`telegram`) runtime objects
- * and the application's immutable boundary DTOs.
- *
- * Encapsulation: `telegram` (`Api`/`utils`) is imported here and in the gateway
- * ONLY — these functions hand back DTOs/primitives, so no GramJS type escapes.
- *
- * Every attacker-controlled string (message body, sender name, chat title, file
- * name) is routed through the injected `Sanitizer` and emitted as `UntrustedText`
- * (structured JSON under a named key), never raw. GramJS big-integer ids are
- * converted to/from native `bigint` via marked-id strings (`utils.getPeerId`).
+ * Pure translation between GramJS runtime objects and the application's immutable DTOs.
+ * `telegram` is imported here and in the gateway only, so no GramJS type escapes.
+ * Every attacker-controlled string — message body, sender name, chat title, file name — goes
+ * through the injected sanitizer and is emitted as `UntrustedText`; GramJS big-integer ids
+ * convert to native `bigint` through marked-id strings.
  */
 import { Api, utils } from 'telegram';
 import type { UnicodeSanitizer } from '../sanitize/unicode-sanitizer.js';
@@ -31,19 +26,17 @@ import {
 import type { UntrustedText } from '../../domain/index.js';
 
 /**
- * Normalize a raw TL field: GramJS *declares* optional TL fields as
- * `T | undefined`, but the runtime deserializer materializes an absent flag as
- * `null` — the declared type lies. A bare `!== undefined` guard therefore
- * passes `null` through (this crashed `mapMessage` on channel posts, whose
- * `fromId` is null, and silently mislabeled every post `forwarded: true`).
- * Same trap `usernameOf` documents below — this helper is the ONE place the
- * quirk is normalized; guard raw TL fields with `tlOptional(...) !== undefined`.
- * (GramJS *custom getters* like `msg.document` return real `undefined` — safe.)
+ * GramJS declares optional TL fields as `T
+ * undefined`, but the runtime deserializer materializes an absent flag as `null` — the declared
+ * type lies, so a bare `!== undefined` guard passes `null` through. That crashed `mapMessage`
+ * on channel posts, whose `fromId` is null, and silently mislabeled every post as forwarded.
+ * This helper is the ONE place the quirk is normalized: guard raw TL fields with
+ * `tlOptional(...) !== undefined`. GramJS custom getters such as `msg.document` do return real
+ * `undefined`.
  */
 const tlOptional = <T>(value: T | undefined): T | undefined =>
   value ?? undefined;
 
-/** The concrete GramJS peer entities we know how to map. */
 export type ResolvedEntity =
   | Api.User
   | Api.Chat
@@ -51,7 +44,6 @@ export type ResolvedEntity =
   | Api.ChatForbidden
   | Api.ChannelForbidden;
 
-/** Runtime narrowing guard for the entities GramJS hands us from dialogs. */
 export const isResolvedEntity = (entity: unknown): entity is ResolvedEntity =>
   entity instanceof Api.User ||
   entity instanceof Api.Chat ||
@@ -59,24 +51,21 @@ export const isResolvedEntity = (entity: unknown): entity is ResolvedEntity =>
   entity instanceof Api.ChatForbidden ||
   entity instanceof Api.ChannelForbidden;
 
-/**
- * Convert a GramJS peer/entity to OUR canonical `bigint` id (the `-100…`
- * marked-id space). Throws only on a structurally invalid peer (programmer
- * error); callers guard with try/catch at the I/O boundary.
- */
+// Throws only on a structurally invalid peer — a programmer error; callers guard with try/catch
+// at the I/O boundary.
 export const canonicalIdOf = (peer: Api.TypePeer | ResolvedEntity): bigint =>
   BigInt(utils.getPeerId(peer));
 
-/** Telegram seconds-since-epoch -> ISO-8601 string. */
 export const unixToIso = (seconds: number): string =>
   new Date(seconds * 1000).toISOString();
 
-/** Public username of an entity, if any (used to build the scoped name index). */
 export const usernameOf = (entity: ResolvedEntity): string | undefined => {
   if (entity instanceof Api.User || entity instanceof Api.Channel) {
-    // GramJS hands back `null` (NOT `undefined`) for a missing username, so guard
-    // on the string type — a bare `!== undefined` check lets `null.length` throw,
-    // which used to abort the whole dialog enumeration.
+    /**
+     * GramJS hands back `null`, not `undefined`, for a missing username, so guard on the string
+     * type: a bare `!== undefined` check lets `null.length` throw, which used to abort the
+     * whole dialog enumeration.
+     */
     if (typeof entity.username !== 'string' || entity.username.length === 0) {
       return undefined;
     }
@@ -88,15 +77,12 @@ export const usernameOf = (entity: ResolvedEntity): string | undefined => {
   return undefined;
 };
 
-/** True iff the entity is a USER the account has in its contacts (folder `Contacts`). */
 export const isContactOf = (entity: ResolvedEntity): boolean =>
   entity instanceof Api.User && entity.contact === true;
 
-/** True iff the entity is a forum supergroup (its "subchats" are topics). */
 export const isForumOf = (entity: ResolvedEntity): boolean =>
   entity instanceof Api.Channel && entity.forum === true;
 
-/** Classify an entity into the coarse ChatKind contract enum. */
 export const chatKindOf = (entity: ResolvedEntity): ChatKind => {
   if (entity instanceof Api.User) {
     return entity.bot === true ? 'bot' : 'user';
@@ -112,11 +98,9 @@ export const chatKindOf = (entity: ResolvedEntity): ChatKind => {
 };
 
 /**
- * A never-blank display label for an entity. Telegram DELETED accounts clear their
- * first/last name and username, so `utils.getDisplayName` returns '' — the official
- * clients render "Deleted Account". Surface that (and a generic fallback for any
- * other unnamed entity) so a picker row / chat title is never an empty `@`.
- * Exported for tests.
+ * Telegram deleted accounts clear first/last name and username, so `utils.getDisplayName`
+ * returns '' — surface "Deleted Account", and a generic fallback for any other unnamed entity,
+ * so a picker row or chat title is never an empty `@`.
  */
 export const displayLabelOf = (entity: ResolvedEntity): string => {
   const name = utils.getDisplayName(entity);
@@ -128,21 +112,18 @@ export const displayLabelOf = (entity: ResolvedEntity): string => {
     : '[Unnamed]';
 };
 
-/** Sanitized human title for a dialog/chat (untrusted; deleted/unnamed labelled). */
 export const titleOf = (
   entity: ResolvedEntity,
   sanitizer: UnicodeSanitizer,
 ): UntrustedText =>
   sanitizer.sanitize(UntrustedTextKind.ChatTitle, displayLabelOf(entity));
 
-/** Sanitized human display name for a sender (untrusted). */
 export const displayNameOf = (
   entity: ResolvedEntity,
   sanitizer: UnicodeSanitizer,
 ): UntrustedText =>
   sanitizer.sanitize(UntrustedTextKind.SenderDisplayName, displayLabelOf(entity));
 
-/** Optional participant count for a chat/channel. */
 const membersCountOf = (entity: ResolvedEntity): number | undefined => {
   if (entity instanceof Api.Channel || entity instanceof Api.Chat) {
     return typeof entity.participantsCount === 'number'
@@ -152,7 +133,6 @@ const membersCountOf = (entity: ResolvedEntity): number | undefined => {
   return undefined;
 };
 
-/** Map an in-scope entity to the read-side ChatInfo DTO. */
 export const mapChatInfo = (
   entity: ResolvedEntity,
   sanitizer: UnicodeSanitizer,
@@ -168,7 +148,6 @@ export const mapChatInfo = (
   });
 };
 
-/** Map an in-scope dialog to the read-side Dialog DTO. */
 export const mapDialog = (
   input: {
     readonly entity: ResolvedEntity;
@@ -186,11 +165,6 @@ export const mapDialog = (
     isForum: isForumOf(input.entity),
   });
 
-/**
- * Map one group/channel member (an `Api.User`) to the read-side Participant DTO.
- * The display name is attacker-controlled -> untrusted; the username is the
- * syntactically-constrained public handle; the id is the canonical-id string.
- */
 export const mapParticipant = (
   user: Api.User,
   sanitizer: UnicodeSanitizer,
@@ -204,7 +178,6 @@ export const mapParticipant = (
   });
 };
 
-/** Map a forum topic to the read-side Topic DTO (title is attacker-controlled). */
 export const mapTopic = (
   topic: Api.ForumTopic,
   sanitizer: UnicodeSanitizer,
@@ -219,11 +192,9 @@ export const mapTopic = (
   });
 
 /**
- * Translate {replyToMessageId, topicId} into MTProto InputReplyToMessage fields
- * — the two TL quirks all topic-addressed writes share: `topMsgId` only takes
- * effect alongside `replyToMsgId` (posting to a topic root = replying to its
- * service message), and the virtual General topic (id 1) has no root, so it must
- * be addressed by OMITTING the topic entirely.
+ * The two TL quirks every topic-addressed write shares: `topMsgId` only takes effect alongside
+ * `replyToMsgId`, and the virtual General topic (id 1) has no root message, so it must be
+ * addressed by omitting the topic entirely.
  */
 export const topicReplyParams = (input: {
   readonly replyToMessageId?: number | undefined;
@@ -242,7 +213,6 @@ export const topicReplyParams = (input: {
   );
 };
 
-/** Classify the media kind of a message using GramJS's typed accessors. */
 const mediaKindOf = (msg: Api.Message): MediaKind => {
   if (msg.sticker !== undefined) return 'sticker';
   if (msg.voice !== undefined) return 'voice';
@@ -259,10 +229,7 @@ const mediaKindOf = (msg: Api.Message): MediaKind => {
   return 'other';
 };
 
-/**
- * Map message media to metadata-ONLY DTO (no bytes ever leave the gateway —
- * download egress is deferred). File name is attacker-controlled -> untrusted.
- */
+// Metadata only — no bytes ever leave the gateway; download egress is deferred.
 export const mapMediaInfo = (
   msg: Api.Message,
   sanitizer: UnicodeSanitizer,
@@ -314,15 +281,11 @@ export const mapMediaInfo = (
   });
 };
 
-/** Hard cap on distinct reaction buckets surfaced per message (output discipline). */
+// Hard cap on distinct reaction buckets surfaced per message (output discipline).
 const MAX_REACTIONS = 20;
 
-/**
- * Map a message's standard-emoji reaction tallies. Only `ReactionEmoji` buckets are
- * surfaced (custom-emoji reactions carry an opaque document id, not a grapheme);
- * each emoticon is sanitized to a plain string and the list is length-capped. Returns
- * `undefined` when the message carries no (standard) reactions.
- */
+// Only `ReactionEmoji` buckets are surfaced: custom-emoji reactions carry an opaque document id
+// rather than a grapheme. Each emoticon is sanitized and the list is length-capped.
 export const mapReactions = (
   msg: Api.Message,
   sanitizer: UnicodeSanitizer,
@@ -351,12 +314,12 @@ export const mapReactions = (
   return out.length > 0 ? out : undefined;
 };
 
-/** Collaborators the message mapper needs from the (scoped) gateway. */
+// Collaborators the message mapper needs from the (scoped) gateway.
 export interface MessageMapDeps {
   readonly sanitizer: UnicodeSanitizer;
-  /** Scoped-cache-only name lookup; never triggers a network fetch. */
+  // Scoped-cache-only name lookup; never triggers a network fetch.
   readonly resolveDisplayName: (canonicalId: bigint) => UntrustedText | undefined;
-  /** Scoped-cache-only forum check; drives topicId derivation for General. */
+  // Scoped-cache-only forum check; drives topicId derivation for General.
   readonly isForumChat: (canonicalId: bigint) => boolean;
 }
 
@@ -392,7 +355,7 @@ const topicFieldsOf = (
   };
 };
 
-/** Map a concrete `Api.Message` to the read-side Message DTO. */
+// Map a concrete `Api.Message` to the read-side Message DTO.
 export const mapMessage = (
   msg: Api.Message,
   deps: MessageMapDeps,

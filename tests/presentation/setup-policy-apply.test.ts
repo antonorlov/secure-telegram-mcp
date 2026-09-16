@@ -1,4 +1,4 @@
-/** Setup's final policy-apply boundary. No Telegram network. */
+// Setup's final policy-apply boundary. No Telegram network.
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';

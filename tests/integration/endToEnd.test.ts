@@ -1,27 +1,8 @@
 /**
- * END-TO-END SECURITY INTEGRATION TEST.
- *
- * Wires the REAL application spine — `TelegramGateway` (faked in-memory) binds a
- * physically scope-bound client, handed to the concrete read/write use-cases,
- * whose resolve -> ACL -> audit engine is the per-chat verb+scope+kill gate —
- * against a single fake gateway whose in-memory data layer PHYSICALLY enforces
- * scope (out-of-scope peers are unfetchable; INVARIANT #1).
- *
- * The only fakes are the *ports* (gateway + cross-cutting collaborators); every
- * security-bearing collaborator (capability gating, ACL evaluator, the scoped
- * client, use-cases) is the production object. The test then asserts the
- * headline guarantees CONCRETELY, by observing the in-memory data layer:
- *
- *  - a READ-ONLY endpoint can `get_messages` in scope but CANNOT send: the send
- *    fails closed with `ACL_DENIED`, spends no quota, and never mutates the data
- *    layer (#3 verb gate, #7 no-quota-on-doomed-request);
- *  - a WRITER endpoint can `send_message` WITHIN scope (the write is persisted
- *    and read back) but NOT to an OUT-OF-SCOPE peer (#1 scope gate); the
- *    out-of-scope send fails closed, spends no quota, and the unrelated peer's
- *    history is untouched;
- *  - the gateway-bound data layer is itself scope-confined: even bypassing the
- *    guard, an out-of-scope read is physically `NOT_FOUND` (#1 enforced at the
- *    data layer, not merely at a higher gate).
+ * End-to-end security integration over the real application spine: a physically scope-bound
+ * client is handed to the concrete read and write use-cases, whose resolve -> ACL -> audit
+ * engine is the per-chat gate, against a fake gateway whose in-memory data layer physically
+ * enforces scope.
  */
 import { describe, it, expect } from 'vitest';
 import { ok, err, type Result } from '../../src/shared/index.js';
@@ -101,10 +82,11 @@ import {
   NO_DENIED,
 } from '../application/_support.js';
 
-// ---------------------------------------------------------------------------
-// In-memory Telegram data layer + the fake gateway / scoped client over it.
-// ---------------------------------------------------------------------------
-
+/**
+ * --------------------------------------------------------------------------- In-memory
+ * Telegram data layer + the fake gateway / scoped client over it.
+ * ---------------------------------------------------------------------------
+ */
 interface StoredMessage {
   readonly id: number;
   readonly text: string;
@@ -127,7 +109,7 @@ class InMemoryTelegramDb {
     return this.byPeer.get(peer.toKey()) ?? [];
   }
 
-  /** Append a sent message and return the stored row (auto-incremented id). */
+  // Append a sent message and return the stored row (auto-incremented id).
   public append(peer: ChatId, text: string): StoredMessage {
     const existing = this.byPeer.get(peer.toKey()) ?? [];
     const last = existing[existing.length - 1];
@@ -145,7 +127,7 @@ class InMemoryTelegramDb {
  * the remainder fail closed.
  */
 class InMemoryScopedClient implements ScopedClient {
-  /** Records the methods actually reached, to prove doomed calls never arrive. */
+  // Records the methods actually reached, to prove doomed calls never arrive.
   public readonly invocations: string[] = [];
 
   public constructor(
@@ -154,7 +136,7 @@ class InMemoryScopedClient implements ScopedClient {
     private readonly db: InMemoryTelegramDb,
   ) {}
 
-  /** Resolve an id-peer and confirm it is inside the bound allow-list. */
+  // Resolve an id-peer and confirm it is inside the bound allow-list.
   private requireInScope(peer: PeerRef): Result<ChatId, AppError> {
     if (peer.kind !== 'id') {
       return {
@@ -211,8 +193,6 @@ class InMemoryScopedClient implements ScopedClient {
     };
   }
 
-  // ---- reader (real) ----
-
   public getMessages(
     q: GetMessagesQuery,
   ): Promise<Result<Page<MessageDto>, AppError>> {
@@ -227,8 +207,6 @@ class InMemoryScopedClient implements ScopedClient {
       .map((m) => this.toDto(peer.value, m));
     return Promise.resolve(ok({ items }));
   }
-
-  // ---- writer (real) ----
 
   public sendMessage(
     c: SendMessageCommand,
@@ -247,8 +225,6 @@ class InMemoryScopedClient implements ScopedClient {
     };
     return Promise.resolve(ok(result));
   }
-
-  // ---- unimplemented surface (fail closed; not exercised here) ----
 
   private unsupported<T>(name: string): Promise<Result<T, AppError>> {
     this.invocations.push(name);
@@ -367,10 +343,11 @@ class InMemoryTelegramGateway {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Composition helpers — assemble the production stack over the fake gateway.
-// ---------------------------------------------------------------------------
-
+/**
+ * --------------------------------------------------------------------------- Composition
+ * helpers — assemble the production stack over the fake gateway.
+ * ---------------------------------------------------------------------------
+ */
 const seededDb = (): InMemoryTelegramDb => {
   const db = new InMemoryTelegramDb();
   db.seed(IN_SCOPE, [
@@ -445,10 +422,6 @@ const sendUseCase = (deps: {
   );
 
 const okVoid: Result<void, AppError> = ok(undefined);
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 describe('e2e: a READ-ONLY endpoint can read in scope but never sends (#3)', () => {
   it('reads in-scope history through the full use-case stack', async () => {

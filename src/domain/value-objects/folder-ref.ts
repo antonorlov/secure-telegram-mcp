@@ -1,9 +1,4 @@
-/**
- * FolderRef — a reference to a Telegram folder (dialog filter), by numeric
- * filter id or title. An endpoint may scope an entire folder; the Telegram
- * adapter resolves it to canonical peer ids before authorization. Equality by
- * value.
- */
+// The Telegram adapter resolves a folder to canonical peer ids before authorization.
 import { type Result, ok, err } from '../../shared/index.js';
 import { DomainErrorCode, domainError, type DomainError } from '../errors.js';
 

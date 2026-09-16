@@ -1,8 +1,3 @@
-/**
- * Config bounded context public surface — the ACL schema, its static
- * scope-lint, the config -> domain mapper, and the shorthand round-trip pair
- * (`parseChatRef` / `chatEntryToRef` + `folderEntryValue`).
- */
 export {
   chatEntryToRef,
   configSchema,

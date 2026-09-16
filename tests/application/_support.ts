@@ -1,7 +1,5 @@
-/**
- * Shared test fixtures + in-memory port fakes for the application layer.
- * Not a *.test.ts file, so vitest imports it without running it as a suite.
- */
+// Shared test fixtures + in-memory port fakes for the application layer. Not a *.test.ts file,
+// so vitest imports it without running it as a suite.
 import { unwrap, ok, type Result } from '../../src/shared/result.js';
 import {
   ChatId,
@@ -28,7 +26,7 @@ import type {
   ConfirmationRequest,
 } from '../../src/application/ports/confirmer.js';
 import type { ScopedClient } from '../../src/application/ports/scoped-client.js';
-import type { KillSwitch } from '../../src/application/ports/config-repository.js';
+import type { KillSwitch } from '../../src/application/ports/configuration.js';
 import type { AppError } from '../../src/application/errors.js';
 import type { Page } from '../../src/application/dtos/pagination.js';
 import type {
@@ -87,7 +85,7 @@ const TEST_TOKEN_HASH = `${'0'.repeat(32)}$${'0'.repeat(64)}`;
  */
 export const NO_DENIED: ReadonlySet<PermissionVerb> = new Set<PermissionVerb>();
 
-/** A daemon-DENIED set for the given verbs (the kill-switch at execution). */
+// A daemon-DENIED set for the given verbs (the kill-switch at execution).
 export const deniedVerbs = (
   ...verbs: readonly PermissionVerb[]
 ): ReadonlySet<PermissionVerb> => new Set<PermissionVerb>(verbs);
@@ -175,10 +173,8 @@ const TOPIC_RESULT: TopicDto = {
   lastMessageId: 42,
 };
 
-/**
- * Spy ScopedClient: records every method called and returns canned Ok results.
- * Used to assert use-case ORDERING (did we even reach the writer?).
- */
+// Spy ScopedClient: records every method called and returns canned Ok results. Used to assert
+// use-case ORDERING (did we even reach the writer?).
 export class SpyScopedClient implements ScopedClient {
   public readonly calls: string[] = [];
   public constructor(

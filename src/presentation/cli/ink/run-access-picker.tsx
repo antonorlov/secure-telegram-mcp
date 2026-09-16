@@ -1,17 +1,7 @@
 /**
- * AccessPickerHost — the controlled Ink sub-tree for the wizard's hard step: it renders the
- * pruned-tree PickerScreen and, on commit, the security-first ReviewScreen (the typed-name
- * gate before a writable save). The single persistent setup app mounts this as one of its
- * router screens.
- *
- * Reached only via `await import(...)` from `setup.ts` — `connect` never loads it. The
- * framework-free pieces (the pure reducer, the config<->picker mapper, the review-input
- * projection below) live outside React so the load-bearing logic stays testable without
- * mounting Ink.
- *
- * The host component owns the single `useReducer` over `pickerReducer`, so the committed
- * `PickerSelectionModel` lives in one place and is read out on exit. The screens are
- * controlled renderers over that state.
+ * The controlled Ink sub-tree for the wizard's hard step: it renders the pruned-tree
+ * PickerScreen and, on commit, the security-first ReviewScreen — the typed-name gate before a
+ * writable save.
  */
 import { useReducer, useState, type FC } from 'react';
 
@@ -38,26 +28,18 @@ import {
   type Row,
 } from '../picker/index.js';
 
-// Public request/result (framework-free DTOs the caller traffics in)
-
 export interface AccessPickerRequest {
-  /** The fully-built, normalized initial reducer state (rows + hydrated selection). */
   readonly initialState: PickerState;
 }
 
 export interface AccessPickerResult {
-  /** False when the operator backed out (Esc/cancel) — selection discarded. */
   readonly committed: boolean;
-  /** The edited selection model (always present; only honoured when committed). */
   readonly model: PickerSelectionModel;
 }
-
-// Pure review-input projection (no Ink/React — module-level for testability)
 
 const chatRowsOf = (rows: readonly Row[]): readonly ChatRow[] =>
   rows.filter((r): r is ChatRow => r.kind === 'chat');
 
-/** Title lookup for a chat key (first row wins; multi-folder chats share a title). */
 const titleByKey = (rows: readonly Row[]): ReadonlyMap<string, string> => {
   const map = new Map<string, string>();
   for (const row of chatRowsOf(rows)) {
@@ -66,12 +48,8 @@ const titleByKey = (rows: readonly Row[]): ReadonlyMap<string, string> => {
   return map;
 };
 
-/**
- * The folder scope units a model would actually COMMIT (folderKey -> title),
- * decided by the SAME `isCommittedFolderUnit` predicate the projection uses —
- * the review must never describe a folder the commit demotes to individual
- * chats (marked, but a child since unselected), nor miss one it emits.
- */
+// Decided by the SAME `isCommittedFolderUnit` predicate the projection uses, so the review
+// never describes a folder unit that the commit would demote to individual chats.
 const committedFolderUnits = (
   rows: readonly Row[],
   model: PickerSelectionModel,
@@ -96,12 +74,9 @@ const committedFolderUnits = (
 };
 
 /**
- * Build the security-first `ReviewInput` from the edit's before/after selection. Pure: the
- * resolved access matrix comes from the reducer's `resolveEffective` selector; the diff is
- * computed against the `before` model — per-chat membership AND COMMITTED folder scope
- * units (a `folders[]` ref tracks the folder's explicit members, so its add/remove must
- * be reviewable too); the blast radius is the set of chats that would become writable.
- * Verbs are the canonical 2-bit projection (r/w tiers).
+ * Pure: the resolved access matrix comes from the reducer's `resolveEffective` selector, and
+ * the diff is computed against the `before` model — per-chat membership and committed folder
+ * units alike.
  */
 export const buildReviewInput = (
   state: PickerState,
@@ -152,8 +127,6 @@ export const buildReviewInput = (
   };
 };
 
-// The controlled host (the single Ink tree: picker -> review)
-
 type HostPhase = 'picker' | 'review';
 
 export interface HostProps {
@@ -161,13 +134,11 @@ export interface HostProps {
   readonly onDone: (result: AccessPickerResult) => void;
 }
 
-/** The committed selection the host hands back (single shape, used on both paths). */
 const committedModel = (state: PickerState): PickerSelectionModel => ({
   selection: state.selection,
   folderScope: state.folderScope,
 });
 
-/** True if any in-scope chat resolves to write. */
 const hasWritableSelection = (state: PickerState): boolean => {
   for (const key of uniqueChatKeys(state.rows)) {
     const eff = resolveEffective(state, key);
@@ -176,7 +147,7 @@ const hasWritableSelection = (state: PickerState): boolean => {
   return false;
 };
 
-/** Folder-unit changes alter a live-tracked scope and always require review. */
+// Folder-unit changes alter a live-tracked scope and always require review.
 const hasFolderUnitChange = (
   state: PickerState,
   before: PickerSelectionModel,
@@ -190,12 +161,8 @@ const hasFolderUnitChange = (
   return false;
 };
 
-/**
- * The controlled picker->review sub-tree. Exported so the single persistent Ink app
- * (`run-setup-app`) mounts the same host as one of its router screens: both the legacy
- * per-edit `render()` and the single-app router drive this one component, so PickerScreen +
- * ReviewScreen are never duplicated. It owns the single `useReducer` over `pickerReducer`.
- */
+// Exported so the single persistent Ink app mounts this same host as one of its router screens:
+// one implementation of picker -> review, whichever path drives it.
 export const AccessPickerHost: FC<HostProps> = ({ initialState, onDone }) => {
   const [state, dispatch] = useReducer(pickerReducer, initialState);
   const [phase, setPhase] = useState<HostPhase>('picker');
@@ -210,9 +177,11 @@ export const AccessPickerHost: FC<HostProps> = ({ initialState, onDone }) => {
         dispatch={(action: PickerAction): void => {
           dispatch(action);
         }}
-        // Explicit keys: `s` saves (committed=true), Esc/`q` cancel (committed=false,
-        // discard). Writable access and live-tracked folder changes are handed to the
-        // security-first review gate first.
+        /**
+         * Explicit keys: `s` saves (committed=true), Esc/`q` cancel (committed=false, discard).
+         * Writable access and live-tracked folder changes are handed to the security-first
+         * review gate first.
+         */
         onExit={(committed: boolean): void => {
           if (!committed) {
             onDone({ committed: false, model: committedModel(state) });

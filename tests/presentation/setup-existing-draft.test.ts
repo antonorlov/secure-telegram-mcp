@@ -1,11 +1,7 @@
 /**
- * loadExistingDraft — the setup editing baseline's fail-closed contract.
- *
- * Only a MISSING config.json is a first run (empty draft). Any other failure —
- * unreadable file, malformed JSON, non-object JSON — must be an ERROR the wizard
- * stops on: proceeding would start editing from an empty baseline, and the next
- * autosave would silently overwrite the operator's real config (endpoints,
- * scopes, token hashes) with just the new edits.
+ * Only a MISSING config.json is a first run. Any other failure — unreadable file, malformed
+ * JSON, non-object JSON — must stop the wizard: proceeding would edit from an empty baseline,
+ * and the next autosave would overwrite the operator's real config with just the new edits.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -159,9 +155,11 @@ describe('loadExistingDraft (fail-closed editing baseline)', () => {
   });
 
   it('SCHEMA-VALID but RUNTIME-INVALID configs are errors (setup gates like the runtime)', async () => {
-    // Each of these passes the Zod schema yet fails the shared schema/lint/domain
-    // pipeline the daemon loads through. A weaker setup gate would adopt them as
-    // the baseline and re-save a config the runtime then refuses to load.
+    /**
+     * Each of these passes the Zod schema yet fails the shared schema/lint/domain pipeline the
+     * daemon loads through. A weaker setup gate would adopt them as the baseline and re-save a
+     * config the runtime then refuses to load.
+     */
     const p = join(dir, 'config.json');
     const withScope = (scope: unknown): unknown => ({
       ...VALID,

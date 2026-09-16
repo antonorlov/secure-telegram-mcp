@@ -1,18 +1,9 @@
 /**
- * SessionGate — daemon-wide lock state plus atomic enforced-policy publication.
- *
- * The daemon serves EVERY connection while locked; endpoint resolution and the
- * tool menu are PIN-free, so initialize/tools/list always succeed. The only lock
- * chokepoint is per-tool-call gateway acquisition, which consults {@link
- * isUnlocked} and fails closed with `AppErrorCode.SessionLocked` until the FIRST
- * actor delivers the PIN. That unlock re-keys the ONE shared store and publishes
- * the ONE ENFORCED (sealed-policy) menu, after which
- * every connection's next call succeeds with no re-unlock. EXECUTION binds to the
- * enforced menu, never to the locked-window config.json draft menu.
- *
- * Depends only on the {@link RuntimeUnlockableStore} + {@link ConfigRepository}
- * ports and domain aggregates — no GramJS/socket/crypto types. The fail-closed
- * transition sequence is documented at {@link authenticateOperator}.
+ * Daemon-wide lock state plus atomic publication of the enforced policy.
+ * The daemon serves every connection while locked — initialize and tools/list are PIN-free. The
+ * only chokepoint is per-tool-call gateway acquisition, which fails closed with `SessionLocked`
+ * until the first actor delivers the PIN. Execution binds to the ENFORCED sealed-policy menu,
+ * never to the config.json draft.
  */
 import { isErr, ok, type Result } from '../../shared/index.js';
 import type { Endpoint } from '../../domain/index.js';
@@ -22,19 +13,12 @@ import type {
   ConfigRepository,
   KillSwitch,
   LoadedConfiguration,
-} from '../ports/config-repository.js';
-import type { SessionKeySource } from '../ports/session-key-source.js';
-import type { RuntimeUnlockableStore } from '../ports/session-unlock.js';
+} from '../ports/configuration.js';
+import type { SessionKeySource, RuntimeUnlockableStore } from '../ports/session.js';
 
 export class SessionGate {
   private enforced: LoadedConfiguration | undefined;
 
-  /**
-   * @param store          the shared, re-keyable session store (the crypto owner).
-   * @param authRepo       the ENFORCED config repository (bound to `store`, so a
-   *                       re-key changes the source it verifies under).
-   * @param initialEnforced the boot-validated policy; absent means locked.
-   */
   public constructor(
     private readonly store: RuntimeUnlockableStore,
     private readonly authRepo: ConfigRepository,
@@ -43,35 +27,27 @@ export class SessionGate {
     this.enforced = initialEnforced;
   }
 
-  /** Synchronous lock read derived from the enforced-policy state. */
   public isUnlocked(): boolean {
     return this.enforced !== undefined;
   }
 
-  /** The ENFORCED endpoints (empty while locked) — the future-connection menu. */
   public enforcedEndpoints(): readonly Endpoint[] {
     return this.enforced?.endpoints ?? [];
   }
 
-  /** Re-resolve the EXECUTION target from the ENFORCED menu by name (fail-closed). */
   public enforcedEndpoint(name: string): Endpoint | undefined {
     return this.enforced?.endpoints.find((ep) => String(ep.name) === name);
   }
 
-  /** The ENFORCED kill-switch (undefined while locked). */
   public enforcedKillSwitch(): KillSwitch | undefined {
     return this.enforced?.killSwitch;
   }
 
-  /** The ENFORCED global download egress cap (undefined -> gateway default). */
   public enforcedMaxDownloadBytes(): number | undefined {
     return this.enforced?.maxDownloadBytes;
   }
 
-  /**
-   * Verify the operator credential without republishing an already-unlocked
-   * runtime. A locked daemon uses the normal atomic unlock transition.
-   */
+  // Verifies the operator credential without republishing an already-unlocked runtime.
   public authenticateOperator(
     source: SessionKeySource,
     onPublished?: () => void,
@@ -80,7 +56,6 @@ export class SessionGate {
     return this.applyEnforcedSource(source, onPublished);
   }
 
-  /** Publish a document already validated and durably sealed by the apply use case. */
   public publishValidated(
     config: LoadedConfiguration,
     onPublished?: () => void,
@@ -89,25 +64,24 @@ export class SessionGate {
   }
 
   /**
-   * Shared unlock/re-key core: tentatively re-key the locked store, open and
-   * validate the ENFORCED policy once, then publish the menu on success. Operator
-   * authentication is globally serialized; while this awaits, the locked gate
-   * prevents every Telegram/session acquisition. Any failure restores machine.
+   * Tentatively re-keys the locked store, opens and validates the enforced policy once, then
+   * publishes. Operator authentication is globally serialized; any failure restores the machine
+   * source.
    */
   private async applyEnforcedSource(
     source: SessionKeySource,
     onPublished?: () => void,
   ): Promise<Result<void, AppError>> {
-    // Opening the sealed policy both authenticates the source and loads the
-    // enforced menu. Do not run a separate memory-hard verification first.
+    // Opening the sealed policy both authenticates the source and loads the enforced menu — do
+    // not run a separate memory-hard verification first.
     this.store.setActiveSource(source);
     let sourceAccepted = false;
     try {
       const loaded = await this.authRepo.load();
       if (isErr(loaded)) {
         if (loaded.error.code === AppErrorCode.NotFound) {
-          // First run / migration can legitimately have sessions but no policy.
-          // Authenticate against the representative blob before opening the gate.
+          // First run or migration can legitimately have sessions but no policy: authenticate
+          // against a representative blob before opening the gate.
           const verified = await this.store.verifyUnlock(source);
           if (isErr(verified)) return verified;
           sourceAccepted = true;
@@ -128,11 +102,9 @@ export class SessionGate {
   }
 
   /**
-   * ATOMIC PUBLISH — the ONE place the enforced menu is swapped (unlock or
-   * policy apply): the caller's derived-cache invalidation runs SYNCHRONOUSLY in the
-   * SAME frame as the swap (no `await` between), so a concurrent in-flight tool
-   * call can never see the new enforced menu while a STALE derived cache still
-   * governs execution — the gap where narrowing could briefly fail open.
+   * ATOMIC PUBLISH — the one place the enforced menu is swapped. The caller's cache
+   * invalidation runs synchronously in the same frame as the swap (no `await` between), so an
+   * in-flight call can never execute against a stale cache while the new menu is live.
    * `onPublished` MUST be synchronous.
    */
   private publish(

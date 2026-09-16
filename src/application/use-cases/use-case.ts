@@ -10,7 +10,7 @@ import type { AppError } from '../errors.js';
 import type { EndpointExecutionContext } from './context.js';
 
 export interface UseCase<TInput, TOutput> {
-  /** The single verb this use-case requires (checked per call at execution). */
+  // The single verb this use-case requires (checked per call at execution).
   readonly verb: PermissionVerb;
   execute(
     ctx: EndpointExecutionContext,

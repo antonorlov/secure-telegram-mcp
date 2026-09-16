@@ -1,17 +1,8 @@
 /**
- * SEALED POLICY 01 — a config.json draft edit does NOT change effective policy.
- *
- * Threat: a same-uid attacker who does NOT hold the unlock secret edits the
- * git-diffable config.json to WIDEN scope, ADD a write verb, or SWAP an endpoint
- * API-key hash, expecting the operator's next unlock to load the tampered ACL.
- * The defence: config.json is only an editable DRAFT — the runtime opens the
- * SEALED policy (AES-256-GCM, sealed under the operator slot set) and trusts only
- * that. A draft edit changes NOTHING until the operator applies it.
- *
- * We drive the REAL entry point (`SealedPolicyRepository.load()`) over a REAL
- * `EncryptedFileSessionStore` (cheap scrypt) + the REAL parser, so a "successful"
- * load builds real Endpoint/Scope domain objects — letting us assert on the
- * concrete widened scope that must never come into existence.
+ * Threat: a same-uid attacker without the unlock secret edits config.json to widen scope, add a
+ * write verb or swap an endpoint API-key hash, expecting the next unlock to load it. The
+ * defence: config.json is only an editable draft — the runtime opens the sealed AES-256-GCM
+ * policy.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';

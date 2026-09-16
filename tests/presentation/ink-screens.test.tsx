@@ -1,33 +1,7 @@
 /**
- * Ink SCREEN render tests (JSX / ink-testing-library) — a `.tsx` render harness
- * that projects the pure reducer state (and the pre-computed `ReviewInput`) through
- * the two LIVE Ink screens and pins what the operator actually sees:
- *
- *   PickerScreen (the hero step):
- *     - browse            : header context + folder/chat rows + inherited provenance
- *     - filtered          : a live query prunes to matches AND preserves selection
- *     - partial folder    : the DERIVED tri-state read-out ([-] partial, [x] full)
- *     - writable override  : a per-chat write override renders `rw` and warns writable
- *
- *   ReviewScreen (the security gate):
- *     - matrix            : resolved r/rw access token + blast radius
- *     - write-confirm     : read-only saves immediately; a WRITABLE save is gated behind
- *                           TYPING the endpoint name; Esc is the safe-default cancel
- *
- * MAIN MENU / HUB NAV (in the original brief) is not covered HERE: the wizard-shell
- * choice menus (main menu / login method / session-security) are the ONE reusable
- * arrow-nav `MenuScreen`, covered by its own `ink/menu-screen.test.ts`. This file
- * pins the two hero screens on the access-edit path: setup -> lazy run-access-picker
- * -> PickerScreen -> ReviewScreen.
- *
- * These are RENDER assertions (`toContain`) rather than full-frame snapshots on
- * purpose: the `<Header>` uses `justifyContent="space-between"`, so a whole-frame
- * snapshot pads to the (terminal-width-dependent) columns and would be brittle. The
- * substrings asserted here are the load-bearing read-outs and are width-stable.
- *
- * The screens are CONTROLLED (the parent owns the reducer): `state` is passed in and
- * a spy `dispatch`/`onDecide` captures outcomes. The NO_COLOR theme keeps frames as
- * plain text so assertions match the glyph vocabulary exactly.
+ * Ink screen render tests: a JSX harness that projects the pure reducer state, and a
+ * pre-computed `ReviewInput`, through the two live Ink screens and pins what the operator
+ * actually sees.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { render } from 'ink-testing-library';
@@ -50,13 +24,12 @@ import {
 
 const mono = createTheme({ colorsEnabled: false, unicodeGlyphs: false });
 
-
-// ---------------------------------------------------------------------------
-// Fixture tree — two folders, four chats (one chat surfaced under two folders).
-//   Work    (expanded)  ->  # releases (@rel_chan, also in VIP), + random
-//   Clients (expanded)  ->  @ Acme, @ Globex
-// ---------------------------------------------------------------------------
-
+/**
+ * --------------------------------------------------------------------------- Fixture tree —
+ * two folders, four chats (one chat surfaced under two folders). Work (expanded) -> # releases
+ * (@rel_chan, also in VIP), + random Clients (expanded) -> @ Acme, @ Globex
+ * ---------------------------------------------------------------------------
+ */
 const work: FolderRow = {
   kind: 'folder',
   id: 'f-work',
@@ -111,10 +84,8 @@ const globex: ChatRow = {
 
 const rows: readonly Row[] = [work, releases, random, clients, acme, globex];
 
-/**
- * Base selection: releases + Acme in scope read-only (explicit bits — membership
- * IS access), random + Globex out of scope (absent = excluded).
- */
+// Base selection: releases + Acme in scope read-only (explicit bits — membership IS access),
+// random + Globex out of scope (absent = excluded).
 const baseState = (): PickerState =>
   createPickerState({
     endpointName: 'support-reader',
@@ -124,10 +95,6 @@ const baseState = (): PickerState =>
       ['c-acme', { read: true, write: false }],
     ]),
   });
-
-// ---------------------------------------------------------------------------
-// Picker mount helper (controlled; captures the dispatched actions)
-// ---------------------------------------------------------------------------
 
 interface PickerHarness {
   readonly frame: () => string;
@@ -148,10 +115,6 @@ const mountPicker = (
   const instance = render(<PickerScreen {...props} {...overrides} />);
   return { frame: () => instance.lastFrame() ?? '', dispatch };
 };
-
-// ===========================================================================
-// PickerScreen — browse
-// ===========================================================================
 
 describe('PickerScreen — filtered render', () => {
   it('prunes to fuzzy matches (surfacing the owning folder) and hides the rest', () => {
@@ -176,10 +139,6 @@ describe('PickerScreen — filtered render', () => {
     expect(filtered.selection).toBe(base.selection);
   });
 });
-
-// ===========================================================================
-// PickerScreen — partial folder (derived tri-state read-out)
-// ===========================================================================
 
 describe('PickerScreen — folder tri-state', () => {
   it('renders a PARTIAL folder-unit as [-] on its tab when some children are members', () => {
@@ -207,10 +166,6 @@ describe('PickerScreen — folder tri-state', () => {
     expect(frame).toContain('Entire "Clients" folder');
   });
 });
-
-// ===========================================================================
-// PickerScreen — write escalation
-// ===========================================================================
 
 describe('PickerScreen — write escalation', () => {
   it('renders a writable chat as `rw` and flags the endpoint writable', () => {

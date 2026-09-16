@@ -1,13 +1,7 @@
 /**
- * SEALED POLICY 02 — a tampered / wrong-key policy blob fails closed.
- *
- * The sealed policy blob is AES-256-GCM (DEK-over-slots). Any edit to it — a
- * flipped payload authTag, a truncated ciphertext, a stripped slot, or plain
- * garbage — makes the GCM unwrap/decrypt fail, so `load()` returns a secret-free
- * Validation error and NO policy is built (fail closed). A wrong unlock secret
- * likewise cannot open it. There is no anti-rollback claim: a same-uid writer can
- * restore an OLDER sealed blob (which only reverts to a policy the operator once
- * sealed) — that is out of scope and NOT tested as a defence.
+ * Any edit to the sealed blob — a flipped payload authTag, a truncated ciphertext, a stripped
+ * slot, or plain garbage — makes the GCM unwrap fail, so `load()` returns a secret-free
+ * Validation error and no policy is built. A wrong unlock secret likewise cannot open it.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';

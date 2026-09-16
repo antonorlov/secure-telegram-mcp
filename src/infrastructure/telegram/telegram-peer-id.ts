@@ -10,7 +10,7 @@
  */
 import type { Api } from 'telegram';
 
-/** Channel/supergroup marker: a channel id `c` maps to `-100…c` == MARK - c. */
+// Channel/supergroup marker: a channel id `c` maps to `-100…c` == MARK - c.
 const CHANNEL_ID_MARK = -1_000_000_000_000n;
 
 /**
@@ -115,7 +115,7 @@ export const dialogFilterFlags = (
   };
 };
 
-/** A folder's explicitly EXCLUDED peer keys (the "never" set), de-duped. */
+// A folder's explicitly EXCLUDED peer keys (the "never" set), de-duped.
 export const dialogFilterExcludeKeys = (
   filter: Api.TypeDialogFilter,
 ): readonly string[] => {

@@ -1,20 +1,7 @@
 /**
- * LOCKED BUT SERVING + one-time shared unlock — the behaviour change at the heart
- * of this feature. Two complementary layers, all synthetic ENGLISH fixtures, NO
- * real data, NO Cyrillic, NO Telegram network:
- *
- *  A. CONNECTION LEVEL (in-memory MCP, real registry + real tool catalogue + real
- *     SessionGate): a LOCKED tool call fails closed with a secret-free
- *     SESSION_LOCKED error and the scoped client is NEVER touched; a ONE-TIME
- *     operator authentication then makes the SAME call — and a SECOND connection
- *     sharing the gate — both succeed WITHOUT re-unlocking.
- *
- *  B. SOCKET LEVEL (a real daemon over a unix socket, hardened app key, NO session
- *     file so nothing reaches Telegram): a locked daemon still ESTABLISHES —
- *     initialize + tools/list succeed and the menu is the endpoint's verb-gated
- *     set; a tool CALL returns the secret-free lock error; operator authentication
- *     refuses a wrong PIN (stays locked) and accepts the right one, after
- *     which calls on fresh connections are no longer SESSION_LOCKED (shared flip).
+ * LOCKED BUT SERVING plus the one-time shared unlock, at two layers and with synthetic fixtures
+ * only: a locked tool call fails closed with a secret-free SESSION_LOCKED error and never
+ * touches the scoped client, and one operator unlock opens the gate for every connection.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -87,7 +74,7 @@ const FULL_MENU = [
   'send_media',
 ].sort();
 
-/** Pull the AppError code out of an isError CallToolResult (registry's shape). */
+// Pull the AppError code out of an isError CallToolResult (registry's shape).
 interface ToolResultView {
   readonly isError?: boolean;
   readonly content?: readonly { readonly type?: string; readonly text?: string }[];
@@ -104,23 +91,24 @@ const errorInfo = (
         };
         if (parsed.error !== undefined) return parsed.error;
       } catch {
-        /* not JSON */
+        // not JSON
       }
     }
   }
   return undefined;
 };
 
-// ---------------------------------------------------------------------------
-// A. CONNECTION LEVEL — real registry + SessionGate, in-memory transport.
-// ---------------------------------------------------------------------------
-
+/**
+ * --------------------------------------------------------------------------- A. CONNECTION
+ * LEVEL — real registry + SessionGate, in-memory transport.
+ * ---------------------------------------------------------------------------
+ */
 class FakeUnlockStore implements RuntimeUnlockableStore {
   public verifyUnlock(): Promise<Result<void, AppError>> {
     return Promise.resolve(ok(undefined));
   }
   public setActiveSource(): void {
-    /* no-op fake */
+    // no-op fake
   }
 }
 
@@ -220,18 +208,21 @@ describe('locked-but-serving (connection level): fail-closed, secret-free, share
     expect(err?.message).toContain('npx secure-telegram-mcp start');
     // ...and leaks NO scope/chat/session/secret/path.
     expect(err?.message ?? '').not.toMatch(SECRET_BEARING);
-    // FAIL-CLOSED (through the REAL daemon provider): the lock check short-circuits
-    // BEFORE gateway acquisition — acquireContext is never called — so the scoped
-    // client is never invoked. A reorder that acquired the gateway first would
-    // push onto acquireCalls here.
+    /**
+     * FAIL-CLOSED (through the REAL daemon provider): the lock check short-circuits BEFORE
+     * gateway acquisition — acquireContext is never called — so the scoped client is never
+     * invoked. A reorder that acquired the gateway first would push onto acquireCalls here.
+     */
     expect(acquireCalls).toEqual([]);
     expect(spy.calls).toEqual([]);
   });
 
   it('UNLOCKED but endpoint ABSENT from the ENFORCED menu: execution fails closed (plain menu never governs), gateway never touched', async () => {
-    // The enforced menu carries ONLY the test endpoint; a connection bound (in the
-    // locked window, off the plain menu) to a DIFFERENT name must NOT execute even
-    // after a valid unlock — it re-resolves off the enforced menu and is denied.
+    /**
+     * The enforced menu carries ONLY the test endpoint; a connection bound (in the locked
+     * window, off the plain menu) to a DIFFERENT name must NOT execute even after a valid
+     * unlock — it re-resolves off the enforced menu and is denied.
+     */
     const { gate, acquireCalls, providerFor } = buildShared();
     const unlockRes = await gate.authenticateOperator({ kind: 'passphrase', passphrase: 'p' });
     expect(unlockRes.ok).toBe(true);
@@ -275,17 +266,13 @@ describe('locked-but-serving (connection level): fail-closed, secret-free, share
   });
 });
 
-// ---------------------------------------------------------------------------
-// B. SOCKET LEVEL — a real locked daemon over a unix socket (no Telegram).
-// ---------------------------------------------------------------------------
-
-/** Cheap scrypt cost so hardening the app key in tests is instant. */
+// Cheap scrypt cost so hardening the app key in tests is instant.
 const CHEAP = {
   pin: { N: 1 << 8, r: 8, p: 1 },
   machine: { N: 1 << 8, r: 8, p: 1 },
 };
 
-/** Minimal newline-delimited-JSON MCP client transport over a net.Socket. */
+// Minimal newline-delimited-JSON MCP client transport over a net.Socket.
 class SocketClientTransport {
   private socket: Socket | undefined;
   private buf = Buffer.alloc(0);
@@ -319,7 +306,7 @@ class SocketClientTransport {
         try {
           this.onmessage?.(JSON.parse(line));
         } catch {
-          /* a non-JSON refusal line — ignore */
+          // a non-JSON refusal line — ignore
         }
       }
       nl = this.buf.indexOf(0x0a);
@@ -357,7 +344,7 @@ describe('locked-but-serving (socket level): real daemon, operator-plane unlock'
     return client;
   };
 
-  /** Seal the test policy under the PIN (cheap KDF) — no session file. */
+  // Seal the test policy under the PIN (cheap KDF) — no session file.
   const seedHardenedPolicy = async (policyPath: string): Promise<void> => {
     const seedStore = new EncryptedFileSessionStore({
       directory: sessionDir,
@@ -368,7 +355,7 @@ describe('locked-but-serving (socket level): real daemon, operator-plane unlock'
     expect(await seedStore.appPosture()).toBe('hardened');
   };
 
-  /** Poll the socket until the daemon is listening (sets `address`). */
+  // Poll the socket until the daemon is listening (sets `address`).
   const waitUp = async (): Promise<void> => {
     address = daemonAddress(sessionDir);
     let up = false;
@@ -636,9 +623,11 @@ describe('locked-but-serving (socket level): real daemon, operator-plane unlock'
         (await operator.authenticate({ kind: 'passphrase', passphrase: PIN })).ok,
       ).toBe(true);
 
-      // The STILL-OPEN 'wider' connection re-resolves off the ENFORCED menu,
-      // which OMITS it -> STILL SESSION_LOCKED. Execution NEVER binds the plain
-      // (locked-window) menu, even though it happily served the connection.
+      /**
+       * The STILL-OPEN 'wider' connection re-resolves off the ENFORCED menu, which OMITS it ->
+       * STILL SESSION_LOCKED. Execution NEVER binds the plain (locked-window) menu, even though
+       * it happily served the connection.
+       */
       const afterWider = await wider.callTool({
         name: 'list_dialogs',
         arguments: { limit: 50 },
@@ -646,9 +635,11 @@ describe('locked-but-serving (socket level): real daemon, operator-plane unlock'
       expect(errorInfo(afterWider)?.code).toBe('SESSION_LOCKED');
       await wider.close();
 
-      // Control: 'reader' (present in the enforced menu) is NO LONGER locked —
-      // it reaches gateway acquisition (GATEWAY_UNAVAILABLE, no session file),
-      // proving the gate opened and only 'wider' was denied on authz grounds.
+      /**
+       * Control: 'reader' (present in the enforced menu) is NO LONGER locked — it reaches
+       * gateway acquisition (GATEWAY_UNAVAILABLE, no session file), proving the gate opened and
+       * only 'wider' was denied on authz grounds.
+       */
       const reader = await openMcp(token);
       const afterReader = await reader.callTool({
         name: 'list_dialogs',
@@ -741,10 +732,12 @@ describe('locked-but-serving (socket level): real daemon, operator-plane unlock'
         (await operator.authenticate({ kind: 'passphrase', passphrase: PIN })).ok,
       ).toBe(true);
 
-      // (5) Fresh connections are NO LONGER SESSION_LOCKED (the shared gate flipped).
-      // With no session file on disk the call now fails GATEWAY_UNAVAILABLE — which
-      // proves the gate opened WITHOUT ever reaching Telegram. A second connection
-      // behaves identically (shared, not per-connection).
+      /**
+       * (5) Fresh connections are NO LONGER SESSION_LOCKED (the shared gate flipped). With no
+       * session file on disk the call now fails GATEWAY_UNAVAILABLE — which proves the gate
+       * opened WITHOUT ever reaching Telegram. A second connection behaves identically (shared,
+       * not per-connection).
+       */
       for (let n = 0; n < 2; n += 1) {
         const post = await openMcp();
         const postCall = await post.callTool({

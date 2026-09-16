@@ -1,12 +1,7 @@
 /**
- * download_media use-case — the read engine's SUCCESS-AUDIT mechanism (media egress
- * must be visible in the audit trail) and its own verb gate (`read_media`).
- *
- *  - a completed download appends ONE allow record (endpoint + read_media + target);
- *  - a plain read (get_messages) does NOT audit on success (reads log only denials),
- *    proving the success-audit is scoped to egress, not all reads;
- *  - a verb-denied download (no read_media grant) fails closed with a DENY record and
- *    never reaches the scoped client.
+ * The read engine's success-audit mechanism — media egress must be visible in the audit trail —
+ * and its own `read_media` verb gate: a completed download appends one allow record, a plain
+ * read audits nothing on success, and a verb-denied download is refused.
  */
 import { describe, it, expect } from 'vitest';
 import { ok } from '../../src/shared/index.js';

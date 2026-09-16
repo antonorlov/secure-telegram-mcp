@@ -1,25 +1,7 @@
 /**
- * Integration test for the wired tool catalogue + STATIC full-menu registry.
- *
- * Proves the headline invariant "the menu is DISCOVERY; EXECUTION is the ACL"
- * end-to-end through the REAL presentation spine: `buildToolDefinitions`
- * assembles every core tool, and `buildEndpointServer` (via
- * `VerbGatedToolRegistry`) registers the FULL non-forbidden catalogue for EVERY
- * endpoint, regardless of its verbs or the kill-switch. A read-only-everywhere
- * endpoint therefore LISTS the write tools too (they DENY at execution — proven
- * by the scoped-client-invariant / use-case / completeness suites).
- *
- * It also asserts the structural guarantees the integration must keep:
- *  - the catalogue exposes exactly the v1 core tools (no stub/extra tools);
- *  - no forbidden raw/scope-mutation tool name (#2) ever appears — even under a
- *    static menu, bypass tools are NEVER registered;
- *  - EVERY tool declares an `outputSchema` (F9) advertised over tools/list;
- *    a REPRESENTATIVE SUBSET (7 of the 18 operations) is additionally
- *    round-tripped through a live client<->server pair — the SDK validates
- *    each success result's structuredContent against the declared schema, and
- *    each round-trip pins the exact scoped operation reached (tool->spec
- *    wiring). The remaining tools are covered by the declaration/advertising
- *    assertions and the completeness suites, not by round-trips.
+ * Integration over the real presentation spine: `buildToolDefinitions` assembles every core
+ * tool and the registry registers the full non-forbidden catalogue for every endpoint,
+ * regardless of its verbs or the kill-switch — the menu is discovery, execution is the ACL.
  */
 import { afterEach, describe, it, expect } from 'vitest';
 import { z } from 'zod';
@@ -115,7 +97,7 @@ const FORBIDDEN_NAMES = [
   'set_permissions',
 ];
 
-/** Register the full catalogue for an endpoint with the given verbs and return the exposed names. */
+// Register the full catalogue for an endpoint with the given verbs and return the exposed names.
 const exposedToolNames = (
   verbs: readonly PermissionVerb[],
 ): readonly string[] => {
@@ -175,12 +157,14 @@ describe('tool catalogue integration (STATIC menu; EXECUTION is the ACL)', () =>
   });
 });
 
-// ---------------------------------------------------------------------------
-// F9 — output contracts: every tool declares an outputSchema, the registry
-// advertises it over tools/list, and a REAL result validates against it.
-// ---------------------------------------------------------------------------
+/**
+ * --------------------------------------------------------------------------- F9 — output
+ * contracts: every tool declares an outputSchema, the registry advertises it over tools/list,
+ * and a REAL result validates against it.
+ * ---------------------------------------------------------------------------
+ */
 
-/** Synthetic results the scoped-client fake serves for the F9 round-trips. */
+// Synthetic results the scoped-client fake serves for the F9 round-trips.
 interface CannedResults {
   readonly messagePage?: Page<MessageDto>;
   readonly sendAck?: SendResultDto;
@@ -201,9 +185,11 @@ class CannedScopedClient extends SpyScopedClient {
   ) {
     super(endpointName);
   }
-  // Records the method name like the Spy base does, so tests can assert WHICH
-  // scoped operation a tool reached — the assertion that pins tool->spec wiring
-  // (name-level closure alone cannot catch a spec swapped between same-shaped tools).
+  /**
+   * Records the method name like the Spy base does, so tests can assert WHICH scoped operation
+   * a tool reached — the assertion that pins tool->spec wiring (name-level closure alone cannot
+   * catch a spec swapped between same-shaped tools).
+   */
   private canOr<T>(
     name: string,
     value: T | undefined,
@@ -266,10 +252,10 @@ class CannedScopedClient extends SpyScopedClient {
   }
 }
 
-/** The in-scope chat id used by `resolvedScope()` (see tests/application/_support). */
+// The in-scope chat id used by `resolvedScope()` (see tests/application/_support).
 const IN_SCOPE_CHAT = '100';
 
-/** A rich synthetic message exercising every optional field incl. envelopes. */
+// A rich synthetic message exercising every optional field incl. envelopes.
 const richMessage = (): MessageDto => ({
   messageId: 42,
   chatId: IN_SCOPE_CHAT,
@@ -304,7 +290,7 @@ const richMessage = (): MessageDto => ({
   ],
 });
 
-/** A minimal synthetic message: only the required DTO fields. */
+// A minimal synthetic message: only the required DTO fields.
 const minimalMessage = (): MessageDto => ({
   messageId: 41,
   chatId: IN_SCOPE_CHAT,
@@ -364,7 +350,7 @@ const syntheticReactionAck = (): ReactionResultDto => ({
   emoji: 'A',
 });
 
-/** Minimal structural view of a CallToolResult — only the fields read here. */
+// Minimal structural view of a CallToolResult — only the fields read here.
 interface ToolResultView {
   readonly isError?: boolean;
   readonly structuredContent?: Record<string, unknown>;
@@ -388,7 +374,7 @@ afterEach(async () => {
   }
 });
 
-/** Serve the REAL catalogue over the in-memory transport with canned port results. */
+// Serve the REAL catalogue over the in-memory transport with canned port results.
 const openCatalogue = async (canned: CannedResults = {}): Promise<LiveCatalogue> => {
   const endpoint = buildEndpoint({
     verbs: [

@@ -1,9 +1,5 @@
-/**
- * SearchInput — the live fuzzy-filter box. When focused it shows a caret and is
- * accent-coloured; the match count mirrors the header's "shown" tally. Focus is
- * load-bearing elsewhere (it makes the r/w access grants inert), but here it only
- * drives the caret + colour.
- */
+// The live fuzzy-filter box. Focus is load-bearing elsewhere — it makes the r/w access grants
+// inert — but here it only drives the caret and colour.
 import type { FC } from 'react';
 import { Box, Text } from 'ink';
 

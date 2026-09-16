@@ -5,7 +5,7 @@ import type {
 import { MAX_POLICY_PLAINTEXT_BYTES } from '../../infrastructure/bounded-read.js';
 
 export const OPERATOR_PROTOCOL_VERSION = 1;
-/** JSON string escaping can at most double an already-valid policy document. */
+// JSON string escaping can at most double an already-valid policy document.
 export const MAX_OPERATOR_FRAME_BYTES =
   MAX_POLICY_PLAINTEXT_BYTES * 2 + 4096;
 const MAX_SECRET_BYTES = 4096;
@@ -22,52 +22,43 @@ export interface OperatorStatusDto {
   readonly hasAccounts: boolean;
 }
 
+export interface OperatorLoginResult {
+  readonly flowId: string;
+  readonly account: {
+    readonly id: string;
+    readonly displayName: string;
+    readonly username?: string;
+  };
+}
+
 export type OperatorResult =
   | OperatorStatusDto
   | { readonly accounts: readonly OperatorAccountDto[] }
   | AccountSnapshotDto
   | { readonly authenticated: true }
   | { readonly digest: string }
-  | {
-      readonly flowId: string;
-      readonly account: {
-        readonly id: string;
-        readonly displayName: string;
-        readonly username?: string;
-      };
-    }
+  | OperatorLoginResult
   | { readonly sessionRef: string }
   | { readonly accepted: true }
   | { readonly changed: true };
 
-export type OperatorResponse =
+type Frame<Payload extends object> = Readonly<{ v: 1; id: string } & Payload>;
+
+export type OperatorResponse = Frame<
+  | { ok: true; result: OperatorResult }
+  | { ok: false; error: string }
   | {
-      readonly v: 1;
-      readonly id: string;
-      readonly ok: true;
-      readonly result: OperatorResult;
+      event: 'login.qr';
+      url: string;
+      expiresInSeconds: number;
     }
   | {
-      readonly v: 1;
-      readonly id: string;
-      readonly ok: false;
-      readonly error: string;
+      event: 'login.prompt';
+      promptId: string;
+      kind: 'phone' | 'code' | 'password';
+      hint?: string;
     }
-  | {
-      readonly v: 1;
-      readonly id: string;
-      readonly event: 'login.qr';
-      readonly url: string;
-      readonly expiresInSeconds: number;
-    }
-  | {
-      readonly v: 1;
-      readonly id: string;
-      readonly event: 'login.prompt';
-      readonly promptId: string;
-      readonly kind: 'phone' | 'code' | 'password';
-      readonly hint?: string;
-    };
+>;
 
 const recordOf = (value: unknown): Record<string, unknown> | undefined =>
   typeof value === 'object' && value !== null
@@ -84,7 +75,7 @@ const boundedString = (value: unknown, maxBytes: number): value is string =>
 
 const parseSource = (
   value: unknown,
-): Exclude<SessionKeySource, { readonly kind: 'machine' }> | undefined => {
+): ProtectedSource | undefined => {
   const source = recordOf(value);
   if (source === undefined || typeof source['kind'] !== 'string') return undefined;
   if (
@@ -119,7 +110,7 @@ type ProtectedSource = Exclude<
 type Request<
   Operation extends string,
   Payload extends object = object,
-> = Readonly<{ v: 1; id: string; op: Operation } & Payload>;
+> = Frame<{ op: Operation } & Payload>;
 
 export type OperatorRequest =
   | Request<'status'>
@@ -155,14 +146,19 @@ export type OperatorRequest =
       { current: ProtectedSource; outputPath: string }
     >;
 
-/** Return the parsed object only after its operation-specific exact validation. */
+export type OperatorLoginInput = Omit<
+  Extract<OperatorRequest, { readonly op: 'login.begin' }>,
+  'v' | 'id' | 'op'
+>;
+
+// Return the parsed object only after its operation-specific exact validation.
 const acceptedRequest = (
   value: Record<string, unknown>,
   accepted: boolean,
 ): OperatorRequest | undefined =>
   accepted ? (value as unknown as OperatorRequest) : undefined;
 
-/** Closed, exact request decoder. Unknown operations and fields are refused. */
+// Closed, exact request decoder. Unknown operations and fields are refused.
 export const parseOperatorRequest = (
   line: string,
 ): OperatorRequest | undefined => {
@@ -290,7 +286,7 @@ export const parseOperatorRequest = (
   }
 };
 
-/** Exhaustive operation policy: adding a request requires choosing its ordering. */
+// Exhaustive operation policy: adding a request requires choosing its ordering.
 const OPERATOR_OPERATION_IS_SERIAL = Object.freeze({
   status: false,
   'accounts.list': true,
@@ -471,7 +467,7 @@ const isOperatorResult = (value: unknown): value is OperatorResult => {
   );
 };
 
-/** Confirm that a success payload belongs to the request it answers. */
+// Confirm that a success payload belongs to the request it answers.
 export const isOperatorResultFor = (
   operation: OperatorRequest['op'],
   value: OperatorResult,
@@ -504,7 +500,7 @@ export const isOperatorResultFor = (
   }
 };
 
-/** Closed response decoder used at the setup/daemon trust boundary. */
+// Closed response decoder used at the setup/daemon trust boundary.
 export const parseOperatorResponse = (
   line: string,
 ): OperatorResponse | undefined => {

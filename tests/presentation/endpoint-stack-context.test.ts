@@ -1,12 +1,7 @@
 /**
- * resolveEndpointRuntime COMPOSITION-ROOT test: the context every use-case
- * receives must carry the daemon-denied verbs and thread the resolved scope,
- * overrides, and bound client through UNCHANGED — pinned against the REAL
- * production function over a fake session stack. Honest scope note: while
- * the denied set is kill-switch-only, its composition is observably
- * identical to the union, so this test proves kill-switch propagation today
- * and becomes discriminating for the default-off term only once that tuple
- * gains its first member.
+ * The context every use-case receives must carry the daemon-denied verbs and thread the
+ * resolved scope, overrides and bound client through unchanged — pinned against the real
+ * production function over a fake session stack.
  */
 import { describe, it, expect } from 'vitest';
 import { ok, type Result } from '../../src/shared/index.js';
@@ -33,7 +28,7 @@ import {
 const endpoint = buildEndpoint({ verbs: [PermissionVerb.Read] });
 const client = new SpyScopedClient(endpoint.name);
 
-/** Only the members resolveEndpointRuntime touches; the cast supplies the rest. */
+// Only the members resolveEndpointRuntime touches; the cast supplies the rest.
 const fakeStack = (overrides: ChatVerbOverrideTable): SessionStack =>
   ({
     folderResolver: {

@@ -66,10 +66,6 @@ const mountReady = async (
   return harness;
 };
 
-// ---------------------------------------------------------------------------
-// 1) Pure cursor navigation (wrap-around).
-// ---------------------------------------------------------------------------
-
 describe('moveMenuIndex — wrap-around cursor', () => {
   it('moves down and wraps from the last row to the first', () => {
     expect(moveMenuIndex(0, 'down', 3)).toBe(1);
@@ -89,10 +85,6 @@ describe('moveMenuIndex — wrap-around cursor', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// 2) Render smoke.
-// ---------------------------------------------------------------------------
-
 describe('MenuScreen — render', () => {
   it('renders the title, subtitle, options, hints, and the cursor on the first row', () => {
     const { lastFrame } = mount(vi.fn());
@@ -108,10 +100,6 @@ describe('MenuScreen — render', () => {
     expect(frame).toContain('esc/← back');
   });
 });
-
-// ---------------------------------------------------------------------------
-// 3) Input contract.
-// ---------------------------------------------------------------------------
 
 describe('MenuScreen — selection', () => {
   it('Enter selects the cursor row (first option by default)', async () => {

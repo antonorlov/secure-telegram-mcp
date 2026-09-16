@@ -1,14 +1,7 @@
 /**
- * MenuScreen — the one reusable arrow-key select screen. Every wizard-shell choice menu (main
- * menu, login method, session-security) is a projection of a `MenuRequest` through this single
- * component.
- *
- * A thin render+input adapter: the cursor math is the framework-free, unit-tested
- * `moveMenuIndex`; the visuals reuse the shared `theme`. It owns no business state — it raises
- * the operator's choice (or a cancel) through `onDone`.
- *
- * Keys: up/down + k/j move (wrap-around), Enter selects, and Esc / ← (Left) / h / q go back
- * (cancel) — the default safe action, which the caller maps onto back / quit / abort.
+ * The one reusable arrow-key select screen: every wizard-shell choice menu is a projection of a
+ * `MenuRequest` through this component. A thin render-and-input adapter — the cursor math is
+ * framework-free.
  */
 import { useState, type ReactElement } from 'react';
 import { Box, Text, useInput } from 'ink';
@@ -16,11 +9,8 @@ import { Box, Text, useInput } from 'ink';
 import { colorProps, defaultTheme, type Theme } from '../theme.js';
 import type { MenuRequest, MenuResult } from '../ui-port.js';
 
-/**
- * Pure cursor navigation: move one step in `direction` within `[0, count)`, wrapping at both
- * ends (down from the last row returns to the first). Total and framework-free so the wrap
- * contract is pinned by a unit test. A `count` of zero (a degenerate empty menu) clamps to 0.
- */
+// Moves one step within `[0, count)`, wrapping at both ends. Total and framework-free, so the
+// wrap contract is pinned by a unit test; a `count` of zero returns 0.
 export const moveMenuIndex = (
   current: number,
   direction: 'up' | 'down',
@@ -31,7 +21,6 @@ export const moveMenuIndex = (
   return (current + delta + count) % count;
 };
 
-/** The render-time props: the request to render + the outcome seam + a theme override. */
 export interface MenuScreenProps<T> {
   readonly request: MenuRequest<T>;
   readonly onDone: (result: MenuResult<T>) => void;

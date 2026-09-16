@@ -1,36 +1,20 @@
 /**
- * daemon — the one long-lived process that owns the Telegram connection and serves
- * every MCP client through the local socket (`daemonAddress`). Telegram's auth key
- * must have exactly one owner-process (two concurrent connections on one key =
- * AUTH_KEY_DUPLICATED = revoked session), so the daemon holds the single GramJS
- * stack per sessionRef and every client is just a pipe into it.
- *
- * LOCKED BUT SERVING: the MCP listener still exposes its static tool menu while a
- * hardened store is locked, but every tool call fails closed before Telegram. The
- * physically separate operator listener is the only place that accepts an unlock
- * credential or an administrative operation.
- *
- * Per-connection protocol (the `connect` shim's contract):
- *   1. first line: JSON handshake
- *      `{ v: 1, token?, endpoint? }` + `\n` (closed schema);
- *   2. newline-delimited MCP JSON-RPC over the same stream;
- *   3. on failure: one JSON error line, then the socket closes (secret-free).
- *
- * AUTHORIZATION: the endpoint API key (hash in config) is the door key — a client
- * resolves to exactly the endpoint its token matches. A token-less / name-only
- * handshake is always refused (fail-closed). While locked the display menu is read
- * from an unverified plain parse of config.json (tool names only); execution always
- * binds to the enforced, sealed policy re-opened at unlock, so the sealed policy
- * still governs authz.
- *
- * POLICY APPLY: the authenticated operator plane validates and durably seals a
- * policy, then atomically publishes its live projection. Only scope-derived
- * bindings are retired; the per-account Telegram connection remains the same
- * owner for its entire daemon lifetime.
- *
- * Lifecycle: a process lease is held until Telegram teardown and socket close both
- * finish. A replacement may unlink a crashed daemon's socket only after recovering
- * that lease from a proven-dead PID.
+ * The one long-lived process that owns the Telegram connection and serves every MCP client over
+ * the local socket. Telegram's auth key must have exactly one owner-process — two connections
+ * on one key means AUTH_KEY_DUPLICATED and a revoked session — so the daemon holds the single
+ * GramJS stack per sessionRef and every client is a pipe into it.
+ * LOCKED BUT SERVING: the MCP listener still exposes its static tool menu while a hardened
+ * store is locked, but every tool call fails closed before Telegram. The physically separate
+ * operator listener is the only place that accepts an unlock credential.
+ * Per connection: a JSON handshake line `{ v: 1, token?, endpoint? }`, then newline-delimited
+ * MCP JSON-RPC over the same stream, and on failure one secret-free JSON error line before the
+ * socket closes.
+ * AUTHORIZATION: the endpoint API key is the door key and a token-less or name-only handshake
+ * is always refused. While locked the menu is an unverified plain parse of config.json (tool
+ * names only); execution always binds to the enforced sealed policy.
+ * Lifecycle: a process lease is held until Telegram teardown and socket close both finish, and
+ * a replacement may unlink a crashed daemon's socket only after recovering that lease from a
+ * proven-dead PID.
  */
 import { createServer, connect as netConnect, type Socket, type Server } from 'node:net';
 import { createHash } from 'node:crypto';
@@ -89,14 +73,14 @@ import {
   recoverStaleDaemonSocket,
 } from '../daemon-socket.js';
 
-/** The shim's first line. The decoder is closed so operator fields cannot cross planes. */
+// The shim's first line. The decoder is closed so operator fields cannot cross planes.
 export interface DaemonHandshake {
   readonly v: 1;
   readonly token?: string;
   readonly endpoint?: string;
 }
 
-/** Maximum UTF-8 bytes before the handshake newline. */
+// Maximum UTF-8 bytes before the handshake newline.
 export const MAX_HANDSHAKE_BYTES = 4096;
 
 export const parseHandshake = (line: string): DaemonHandshake | undefined => {
@@ -117,12 +101,9 @@ export const parseHandshake = (line: string): DaemonHandshake | undefined => {
 };
 
 /**
- * Resolve which endpoint a handshake may use — pure + fail-closed:
- *  - a token resolves to the endpoint whose hash it matches (and must agree with
- *    `endpoint` when both are present);
- *  - a bare name (no token) can never open an endpoint — a name-only handshake is
- *    always refused;
- *  - anything else is refused with a secret-free reason.
+ * Pure and fail-closed: a token resolves to the endpoint whose hash it matches, and must agree
+ * with `endpoint` when both are present; a bare name can never open an endpoint; anything else
+ * is refused with a secret-free reason.
  */
 export const resolveHandshakeEndpoint = (
   endpoints: readonly Endpoint[],
@@ -155,19 +136,14 @@ export const resolveHandshakeEndpoint = (
 };
 
 /**
- * Read the handshake line from a socket, UNSHIFTING any bytes that followed it
- * in the same chunk back onto the stream (they are the start of the MCP
- * conversation and belong to the transport).
- *
- * CONTRACT: resolves with the stream PAUSED. Listening for 'data' put the
- * socket into flowing mode; if we left it flowing, every byte arriving between
- * this resolve and the transport attaching its own 'data' listener (an async
- * gap: endpoint context/scope resolution) would be emitted to nobody and
- * silently lost — the client's `initialize` died exactly there. Paused, those
- * bytes buffer in order. The caller MUST socket.resume() after attaching the
- * consumer: Node does not re-enter flowing mode on listener-attach once a
- * stream was explicitly paused, and StdioServerTransport.start() never calls
- * resume() itself.
+ * Reads the handshake line, unshifting any bytes that followed it in the same chunk — they are
+ * the start of the MCP conversation and belong to the transport.
+ * CONTRACT: resolves with the stream PAUSED. Left flowing, every byte arriving between this
+ * resolve and the transport attaching its own 'data' listener would be emitted to nobody and
+ * silently lost — the client's `initialize` died exactly there. The caller MUST call
+ * socket.resume() after attaching the consumer: Node does not re-enter flowing mode on
+ * listener-attach once a stream was explicitly paused, and StdioServerTransport.start() never
+ * resumes.
  */
 export const readHandshakeLine = (
   socket: Socket,
@@ -223,44 +199,36 @@ export const readHandshakeLine = (
     socket.once('error', onEnd);
   });
 
-/** Pre-handshake window: long enough for a local shim, short enough to bound fd use. */
+// Pre-handshake window: long enough for a local shim, short enough to bound fd use.
 const HANDSHAKE_TIMEOUT_MS = 3_000;
 
-/** Cap on simultaneously-open sockets (local shims only) — bounds fd exhaustion. */
+// Cap on simultaneously-open sockets (local shims only) — bounds fd exhaustion.
 const MAX_CONNECTIONS = 64;
 
-/** The user-facing read-out for a PIN-locked store (shim preflight, daemon, docs). */
+// The user-facing read-out for a PIN-locked store (shim preflight, daemon, docs).
 export const SESSION_LOCKED_MESSAGE =
   "Telegram MCP is locked. Run 'npx secure-telegram-mcp start' in a terminal, then retry.";
 
-/**
- * Per-call authorization failure: the connection's presented endpoint API key no
- * longer matches this endpoint's enforced `tokenHash` (rotated or revoked by a live
- * policy apply). Re-checked on every call, not just at handshake, so a leaked/rotated key
- * stops working on an already-open connection, not only on reconnect. Secret-free.
- */
+// Re-checked on every call, not only at handshake, so a key rotated or revoked by a live policy
+// apply stops working on an already-open connection. Secret-free.
 export const ENDPOINT_KEY_REVOKED_MESSAGE =
   'endpoint API key is no longer valid (rotated or revoked) — reconnect with the current key';
 
-/**
- * Pure lock policy: a HARDENED store cannot be served by a daemon that has no
- * PIN channel (headless auto-start would silently fail per-connection instead).
- */
+// A hardened store cannot be served by a daemon with no PIN channel: headless auto-start would
+// otherwise fail silently, per connection.
 export const isLockedWithoutPin = (
   posture: 'none' | 'smooth' | 'hardened',
   keySourceKind: string,
 ): boolean => posture === 'hardened' && keySourceKind === 'machine';
 
-/** Default idle window before an unlocked daemon auto-locks (hours). */
+// Default idle window before an unlocked daemon auto-locks (hours).
 const DEFAULT_DAEMON_IDLE_HOURS = 12;
 
 /**
- * The idle auto-lock window in ms: how long the daemon may sit with no client
- * activity before it locks (shuts down, zeroizing the session, so the next connect
- * must re-enter the PIN). Only meaningful under HARDENED — a SMOOTH (machine-key)
- * daemon would just silently machine-unlock again, so this returns 0 (disabled)
- * there. Tunable via TELEGRAM_MCP_IDLE_HOURS: 0/negative/invalid disables;
- * empty/unset means the 12-hour default.
+ * How long the daemon may sit without client activity before it locks — shutting down and
+ * zeroizing the session, so the next connect must re-enter the PIN. Only meaningful under
+ * HARDENED: a machine-key daemon would silently unlock again, so it returns 0 there.
+ * `TELEGRAM_MCP_IDLE_HOURS` tunes it; 0, negative or invalid disables.
  */
 export const resolveDaemonIdleMs = (
   env: Readonly<Record<string, string | undefined>>,
@@ -277,18 +245,14 @@ export const resolveDaemonIdleMs = (
 };
 
 /**
- * The per-tool-call fail-closed context decision — the daemon's one lock
- * chokepoint, kept pure so it is exercised by the real daemon and unit-testable. It
- * yields the enforced context only when (a) the gate is unlocked and (b) the
- * enforced (sealed-policy) menu still carries this endpoint + kill-switch; otherwise
- * a secret-free `SessionLocked` error, without ever invoking `acquireContext` — so
- * the scoped client / gateway is never touched while locked, and a locked-window
- * (plain, possibly-widened) endpoint absent from the enforced menu can never govern
- * execution. A gateway-build failure maps to `GatewayUnavailable`.
- *
- * SECURITY ORDERING (do not reorder): the `isUnlocked()` and enforced-menu checks
- * run BEFORE `acquireContext`; moving acquisition earlier would touch the gateway on
- * a locked call.
+ * The daemon's one lock chokepoint, kept pure so the real daemon and the unit tests exercise
+ * the same decision. It yields the enforced context only when the gate is unlocked AND the
+ * enforced menu still carries this endpoint and kill-switch; otherwise a secret-free
+ * `SessionLocked`, without ever invoking `acquireContext`, so the gateway is never touched
+ * while locked and a locked-window endpoint absent from the enforced menu can never govern
+ * execution.
+ * SECURITY ORDERING (do not reorder): the unlock and enforced-menu checks run BEFORE
+ * acquisition.
  */
 export const lockedContextProvider =
   (
@@ -301,11 +265,8 @@ export const lockedContextProvider =
       killSwitch: KillSwitch,
     ) => Promise<EndpointExecutionContext>,
     endpointName: string,
-    /**
-     * Re-authorize this connection's presented API key against the endpoint's
-     * current enforced `tokenHash`. Run every call so a key rotated/revoked by a live
-     * policy apply stops working on the already-open connection, not only on reconnect.
-     */
+    // Run on every call, so a key rotated or revoked by a live policy apply stops working on
+    // the already-open connection, not only on reconnect.
     authorizeToken: (endpoint: Endpoint) => boolean,
   ) =>
   async (): Promise<Result<EndpointExecutionContext, AppError>> => {
@@ -320,9 +281,11 @@ export const lockedContextProvider =
       return err(appError(AppErrorCode.SessionLocked, SESSION_LOCKED_MESSAGE));
     }
     if (!authorizeToken(enforcedEndpoint)) {
-      // Unlocked and the endpoint still exists, but the key presented at handshake no
-      // longer matches its enforced tokenHash (rotated/revoked by policy apply). Fail
-      // closed on the existing connection.
+      /**
+       * Unlocked and the endpoint still exists, but the key presented at handshake no longer
+       * matches its enforced tokenHash (rotated/revoked by policy apply). Fail closed on the
+       * existing connection.
+       */
       return err(appError(AppErrorCode.AclDenied, ENDPOINT_KEY_REVOKED_MESSAGE));
     }
     try {
@@ -338,14 +301,11 @@ export const lockedContextProvider =
   };
 
 /**
- * Composition options for the sole Telegram-owning runtime. The daemon binds and serves even while
- * PIN-locked, so it needs both bound to its one shared, re-keyable store:
- *  - `makeConfigRepository`: builds the enforced (sealed-policy) repo whose
- *    sealed-policy store IS the shared session store, so a runtime unlock's
- *    `setActiveSource` re-keys the policy open too. Loaded lazily at unlock; drives execution.
- *  - `plainConfigRepository`: a keyless parser used only while locked to render the
- *    tool-name menu from the config.json draft (unverified, display-only — never
- *    governs authorization; execution binds to the sealed policy).
+ * The daemon binds and serves even while locked, so both repositories are bound to its one
+ * shared, re-keyable store: `makeConfigRepository` builds the enforced sealed-policy repo,
+ * loaded lazily at unlock and driving execution, while `plainConfigRepository` is a keyless
+ * parser used only to render tool names from the draft while locked — display-only, never
+ * authorization.
  */
 export interface DaemonOptions {
   readonly apiId?: number;
@@ -356,7 +316,6 @@ export interface DaemonOptions {
   readonly mediaRootDir: string;
   readonly logger?: (message: string) => void;
   readonly exit?: (code: number) => void;
-  /** Test/deployment seam for idle policy; defaults to process.env. */
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly makeConfigRepository: (
     store: SealedPolicyStore,
@@ -389,9 +348,11 @@ export const daemon = async (options: DaemonOptions): Promise<void> => {
     keySource: options.sessionKey,
   });
 
-  // LOCKED BUT SERVING: a hardened store with no PIN channel comes up locked, yet
-  // still binds and serves. Endpoint resolution + the tool menu are PIN-free; only
-  // per-call gateway acquisition is gated (fail-closed) until a one-time unlock.
+  /**
+   * LOCKED BUT SERVING: a hardened store with no PIN channel comes up locked, yet still binds
+   * and serves. Endpoint resolution + the tool menu are PIN-free; only per-call gateway
+   * acquisition is gated (fail-closed) until a one-time unlock.
+   */
   const initialPosture = await sessions.appPosture();
   const locked = isLockedWithoutPin(initialPosture, options.sessionKey.kind);
   let operatorPosture = initialPosture;
@@ -402,15 +363,19 @@ export const daemon = async (options: DaemonOptions): Promise<void> => {
   const authRepo = options.makeConfigRepository(sessions);
   const plainRepo = options.plainConfigRepository;
 
-  // The locked-window display menu (endpoint resolution + tool names): read from the
-  // keyless plain parser (unverified — display only, execution never uses it). Once
-  // the gate is unlocked, endpoint resolution derives from its enforced menu instead.
+  /**
+   * The locked-window display menu (endpoint resolution + tool names): read from the keyless
+   * plain parser (unverified — display only, execution never uses it). Once the gate is
+   * unlocked, endpoint resolution derives from its enforced menu instead.
+   */
   let plainEndpoints: readonly Endpoint[] = [];
   let initialEnforced: LoadedConfiguration | undefined;
   if (locked) {
-    // Locked mode cannot decrypt a hardened blob under the machine source; this
-    // probe only distinguishes a missing first-run policy from a present seal.
-    // Unlocked mode skips it and opens the policy exactly once below.
+    /**
+     * Locked mode cannot decrypt a hardened blob under the machine source; this probe only
+     * distinguishes a missing first-run policy from a present seal. Unlocked mode skips it and
+     * opens the policy exactly once below.
+     */
     const policyProbe = await sessions.loadPolicy();
     const policyMissing = policyProbe.ok && policyProbe.value === undefined;
     if (policyProbe.ok && policyProbe.value !== undefined) {
@@ -419,9 +384,11 @@ export const daemon = async (options: DaemonOptions): Promise<void> => {
     if (!policyMissing) {
       const plain = await plainRepo.load();
       if (isErr(plain)) {
-        // The draft is display-only while locked. Refusing the operator socket
-        // here would make a hand-edit typo block recovery of the valid seal.
-        // Expose no MCP endpoint until authentication publishes that seal.
+        /**
+         * The draft is display-only while locked. Refusing the operator socket here would make
+         * a hand-edit typo block recovery of the valid seal. Expose no MCP endpoint until
+         * authentication publishes that seal.
+         */
         log(
           `config draft unavailable while locked (${plain.error.message}); ` +
             'MCP endpoints remain unavailable until operator authentication',
@@ -459,9 +426,11 @@ export const daemon = async (options: DaemonOptions): Promise<void> => {
     gate,
   );
 
-  // Shared, lazily-built runtime caches: one session stack per sessionRef; one
-  // resolved context per endpoint. The audit log + rate limiter are process-wide
-  // (limits are anti-ban, per account activity — shared across connections by design).
+  /**
+   * Shared, lazily-built runtime caches: one session stack per sessionRef; one resolved context
+   * per endpoint. The audit log + rate limiter are process-wide (limits are anti-ban, per
+   * account activity — shared across connections by design).
+   */
   const auditLog = new FileAuditLog({
     filePath: options.auditLogPath,
     // A broken audit sink must be LOUD (a write may have executed with no record).
@@ -538,9 +507,11 @@ export const daemon = async (options: DaemonOptions): Promise<void> => {
   const stackFor = (endpoint: Endpoint): Promise<SessionStack> =>
     stackForRef(endpoint.sessionRef, `endpoint '${String(endpoint.name)}'`);
 
-  // Bound to the enforced (endpoint, killSwitch) — the provider always feeds this the
-  // target re-resolved from the gate's enforced menu, so a locked-window (plain,
-  // possibly-widened) endpoint can never govern execution.
+  /**
+   * Bound to the enforced (endpoint, killSwitch) — the provider always feeds this the target
+   * re-resolved from the gate's enforced menu, so a locked-window (plain, possibly-widened)
+   * endpoint can never govern execution.
+   */
   const contextFor = (
     endpoint: Endpoint,
     endpointKillSwitch: KillSwitch,
@@ -559,9 +530,8 @@ export const daemon = async (options: DaemonOptions): Promise<void> => {
       })
       .then((runtime) => runtime.context);
 
-  // The lazy, per-tool-call context provider (the fail-closed chokepoint):
-  // {@link lockedContextProvider} bound to this daemon's shared gate + gateway
-  // acquisition. No gateway is touched while locked.
+  // The lazy per-tool-call context provider — the fail-closed chokepoint bound to this daemon's
+  // gate and gateway acquisition. No gateway is touched while locked.
   const providerFor = (
     endpointName: string,
     presentedToken: string | undefined,
@@ -583,17 +553,20 @@ export const daemon = async (options: DaemonOptions): Promise<void> => {
     socket.end(`${JSON.stringify({ error: reason })}\n`);
   };
 
-  // Reset by every connection / request / disconnect. The real impl is wired after
-  // the server + `shutdown` exist (idle auto-lock, below); a noop until then and
-  // whenever the idle lock is disabled. `idleMs` is a `let`: 0 (no timer) while
-  // locked, recomputed to the passphrase window at unlock.
+  /**
+   * Reset by every connection, request and disconnect. The real implementation is wired once
+   * the server and `shutdown` exist; a noop until then and whenever the idle lock is disabled.
+   * `idleMs` is 0 while locked and recomputed at unlock.
+   */
   const environment = options.env ?? process.env;
   let idleMs = resolveDaemonIdleMs(environment, options.sessionKey.kind);
   let bumpIdle: () => void = () => undefined;
 
-  // Flipped SYNCHRONOUSLY at shutdown, BEFORE the retirement drain: while the
-  // daemon still holds its lifetime lease but is releasing Telegram ownership,
-  // no new connection and no new stack build may re-acquire it.
+  /**
+   * Flipped SYNCHRONOUSLY at shutdown, BEFORE the retirement drain: while the daemon still
+   * holds its lifetime lease but is releasing Telegram ownership, no new connection and no new
+   * stack build may re-acquire it.
+   */
   let shuttingDown = false;
   let idleTimer: ReturnType<typeof setTimeout> | undefined;
   const setIdleSourceKind = (kind: string): void => {
@@ -603,9 +576,11 @@ export const daemon = async (options: DaemonOptions): Promise<void> => {
     bumpIdle();
   };
 
-  // Same-uid is only a transport boundary. Hardened operator authentication is
-  // still brute-force throttled across connections; the first typo is free and
-  // subsequent failures earn an exponential cooldown.
+  /**
+   * Same-uid is only a transport boundary. Hardened operator authentication is still
+   * brute-force throttled across connections; the first typo is free and subsequent failures
+   * earn an exponential cooldown.
+   */
   const AUTH_BACKOFF_BASE_MS = 1_000;
   const AUTH_BACKOFF_MAX_MS = 30_000;
   let authenticationFailures = 0;
@@ -628,12 +603,10 @@ export const daemon = async (options: DaemonOptions): Promise<void> => {
   };
 
   /**
-   * The ONE synchronous publish hook, shared by every enforced-menu swap (first
-   * unlock or policy apply). SessionGate invokes it in the SAME frame it
-   * republishes the enforced menu, so the previous policy bindings are retired
-   * with no await in between. A concurrent call cannot bind a stale scope/cap;
-   * account stacks deliberately remain connected. Everything menu-shaped
-   * (endpoints, kill-switch, download cap) is read from the gate directly.
+   * The ONE synchronous publish hook, shared by every enforced-menu swap. SessionGate invokes
+   * it in the SAME frame it republishes the menu, so previous policy bindings retire with no
+   * await in between and a concurrent call can never bind a stale scope or cap. Account stacks
+   * deliberately stay connected.
    */
   const publishEnforced = (): void => {
     contexts.retire();
@@ -642,9 +615,11 @@ export const daemon = async (options: DaemonOptions): Promise<void> => {
   const operatorServer = createOperatorServer({
     onActivity: (): void => { bumpIdle(); },
     handlers: {
-      // Never derive authorization posture from mutable files after boot. A
-      // corrupted blob must fail closed, not masquerade as an empty store and
-      // disable operator authentication while this process still holds the key.
+      /**
+       * Never derive authorization posture from mutable files after boot. A corrupted blob must
+       * fail closed, not masquerade as an empty store and disable operator authentication while
+       * this process still holds the key.
+       */
       requiresAuthentication: () =>
         Promise.resolve(operatorPosture === 'hardened'),
       status: async () => {
@@ -659,9 +634,11 @@ export const daemon = async (options: DaemonOptions): Promise<void> => {
       listAccounts: async () => {
         const refs = await sessions.listRefs();
         if (isErr(refs)) return refs;
-        // Hardened loads run a memory-hard KDF. This operator-only cold path is
-        // deliberately sequential so four accounts cannot create a ~512 MiB
-        // scrypt burst merely to render the account menu.
+        /**
+         * Hardened loads run a memory-hard KDF. This operator-only cold path is deliberately
+         * sequential so four accounts cannot create a ~512 MiB scrypt burst merely to render
+         * the account menu.
+         */
         const accounts: { sessionRef: string; label?: string }[] = [];
         for (const sessionRef of refs.value) {
           const material = await sessions.load(sessionRef);
@@ -883,9 +860,11 @@ export const daemon = async (options: DaemonOptions): Promise<void> => {
     }
     const endpointName = String(resolved.endpoint.name);
     try {
-      // Build the server immediately from the resolved endpoint (PIN-free menu) — no
-      // eager context resolution. The gateway is acquired lazily per call via the
-      // provider, which fails closed while locked.
+      /**
+       * Build the server immediately from the resolved endpoint (PIN-free menu) — no eager
+       * context resolution. The gateway is acquired lazily per call via the provider, which
+       * fails closed while locked.
+       */
       const { server, toolNames } = createConnectionServer({
         // Re-authorize this connection's presented key on every call: a key
         // rotated/revoked by policy apply stops working here, not only on reconnect.
@@ -903,9 +882,11 @@ export const daemon = async (options: DaemonOptions): Promise<void> => {
         void server.close().catch(() => undefined);
       });
       await server.connect(new BoundedStreamServerTransport(socket, socket));
-      // readHandshakeLine returned the stream paused (lossless across the
-      // context-resolution gap above); the transport's 'data' listener is
-      // attached now, so release the buffered MCP conversation in order.
+      /**
+       * readHandshakeLine returned the stream paused (lossless across the context-resolution
+       * gap above); the transport's 'data' listener is attached now, so release the buffered
+       * MCP conversation in order.
+       */
       socket.resume();
       // Each inbound chunk (an MCP request) is activity for the idle auto-lock.
       socket.on('data', () => { bumpIdle(); });
@@ -918,9 +899,11 @@ export const daemon = async (options: DaemonOptions): Promise<void> => {
   const address = daemonAddress(options.sessionDir);
   const operatorSocketAddress = operatorAddress(options.sessionDir);
   if (isSocketFile(address)) {
-    // The socket's PARENT dir perms ARE its access boundary — ensure it exists
-    // 0700 before binding (covers both the in-session-dir socket and the
-    // dedicated tmpdir-fallback subdir; never a bare 1777 tmpdir).
+    /**
+     * The socket's PARENT dir perms ARE its access boundary — ensure it exists 0700 before
+     * binding (covers both the in-session-dir socket and the dedicated tmpdir-fallback subdir;
+     * never a bare 1777 tmpdir).
+     */
     await mkdir(dirname(address), { recursive: true, mode: 0o700 });
     // mkdir is a NO-OP on a pre-existing dir, so verify ownership/mode BEFORE
     // binding — refuse to serve into a dir another user could have squatted.
@@ -959,9 +942,11 @@ export const daemon = async (options: DaemonOptions): Promise<void> => {
     socket.once('close', () => { clientSockets.delete(socket); });
     void onConnection(socket);
   });
-  // Bound fd use: local shims are the only legitimate clients, so a small cap
-  // (with the shortened pre-handshake window) keeps a connect-flood from
-  // exhausting descriptors. Excess connections queue in the kernel backlog.
+  /**
+   * Bound fd use: local shims are the only legitimate clients, so a small cap (with the
+   * shortened pre-handshake window) keeps a connect-flood from exhausting descriptors. Excess
+   * connections queue in the kernel backlog.
+   */
   server.maxConnections = MAX_CONNECTIONS;
 
   // Initialize shutdown before listen(): the server can accept immediately once
@@ -970,10 +955,12 @@ export const daemon = async (options: DaemonOptions): Promise<void> => {
     if (shuttingDown) {
       return; // a signal raced the idle timeout — one teardown only
     }
-    // ORDER MATTERS. The process lease outlives Telegram ownership and the bound
-    // socket. A replacement can recover a socket only after the lease owner PID
-    // is dead, so it cannot connect this auth key while this drain is in flight.
-    // `shuttingDown` also blocks in-process reacquisition synchronously.
+    /**
+     * ORDER MATTERS. The process lease outlives Telegram ownership and the bound socket. A
+     * replacement can recover a socket only after the lease owner PID is dead, so it cannot
+     * connect this auth key while this drain is in flight. `shuttingDown` also blocks
+     * in-process reacquisition synchronously.
+     */
     shuttingDown = true;
     if (idleTimer !== undefined) clearTimeout(idleTimer);
     operatorServer.close();
@@ -989,9 +976,11 @@ export const daemon = async (options: DaemonOptions): Promise<void> => {
     };
     const watchdog = setTimeout(() => {
       log('TEARDOWN TIMED OUT — forcing process exit with ownership still locked');
-      // Production process exit releases Telegram and both sockets together. Do
-      // not release the lifetime lease first: that could admit a replacement
-      // while an uncertain old connection still owns the auth key.
+      /**
+       * Production process exit releases Telegram and both sockets together. Do not release the
+       * lifetime lease first: that could admit a replacement while an uncertain old connection
+       * still owns the auth key.
+       */
       finish(1);
     }, DEFAULT_SHUTDOWN_TIMEOUT_MS);
     watchdog.unref();
@@ -1069,10 +1058,12 @@ export const daemon = async (options: DaemonOptions): Promise<void> => {
     return;
   }
   if (isSocketFile(address)) {
-    // Second permission layer INDEPENDENT of the process umask: the verified
-    // 0700 parent dir is the primary boundary; 0600 on the socket inode itself
-    // keeps a mis-permissioned dir from widening access. Failure is logged
-    // loudly but non-fatal (the dir check above already gated binding).
+    /**
+     * Second permission layer INDEPENDENT of the process umask: the verified 0700 parent dir is
+     * the primary boundary; 0600 on the socket inode itself keeps a mis-permissioned dir from
+     * widening access. Failure is logged loudly but non-fatal (the dir check above already
+     * gated binding).
+     */
     await chmod(address, 0o600).catch(() => {
       log('warning: could not chmod the local socket to 0600');
     });

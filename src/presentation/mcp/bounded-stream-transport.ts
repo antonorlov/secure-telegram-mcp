@@ -9,9 +9,9 @@ import type { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
 
 import { BoundedLineFramer } from '../bounded-line-framer.js';
 
-/** Generous ceiling over the largest shipped tool input (currently below 8 KiB). */
+// Generous ceiling over the largest shipped tool input (currently below 8 KiB).
 export const MAX_MCP_FRAME_BYTES = 256 * 1024;
-/** Bound request state and queued responses retained for a non-reading client. */
+// Bound request state and queued responses retained for a non-reading client.
 export const MAX_MCP_IN_FLIGHT_REQUESTS = 32;
 
 /**
@@ -139,7 +139,7 @@ export class BoundedStreamServerTransport implements Transport {
       : undefined;
   }
 
-  /** Share one backpressure waiter and settle it on drain, error, or close. */
+  // Share one backpressure waiter and settle it on drain, error, or close.
   private waitForDrain(): Promise<void> {
     if (this.pendingDrain !== undefined) return this.pendingDrain;
     const pending = new Promise<void>((resolve, reject) => {

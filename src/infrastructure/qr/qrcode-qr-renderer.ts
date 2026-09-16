@@ -11,11 +11,11 @@
  */
 import * as QRCode from 'qrcode';
 
-/** Quiet-zone width in modules on every side (spec minimum is 4 at print scale;
- * 2 is ample for a self-luminous terminal and keeps the block compact). */
+// Quiet-zone width in modules on every side: the spec minimum is 4 at print scale, but 2 is
+// ample for a self-luminous terminal and keeps the block compact.
 const QUIET_MODULES = 2;
 
-/** Half-block glyph for a (top, bottom) pair of light flags. */
+// Half-block glyph for a (top, bottom) pair of light flags.
 const halfBlock = (top: boolean, bottom: boolean): string =>
   top ? (bottom ? '\u2588' : '\u2580') : bottom ? '\u2584' : ' ';
 

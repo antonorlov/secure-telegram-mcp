@@ -1,6 +1,6 @@
 import { ENDPOINT_TOKEN_ENV } from './endpoint-token.js';
 
-/** A daemon inherits runtime configuration, never one MCP client's authority. */
+// A daemon inherits runtime configuration, never one MCP client's authority.
 export const daemonSpawnEnvironment = (
   source: NodeJS.ProcessEnv,
 ): NodeJS.ProcessEnv => {

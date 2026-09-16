@@ -22,7 +22,7 @@ class FrozenClock implements Clock {
   }
 }
 
-/** A manually-advanced clock for the time-dependent breaker/window tests. */
+// A manually-advanced clock for the time-dependent breaker/window tests.
 class SteppingClock implements Clock {
   private t = FIXED_MS;
   public nowMs(): number {
@@ -136,15 +136,18 @@ describe('TokenBucketRateLimiter per-session partitioning', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Circuit breaker — the fail-closed cooldown behind sustained saturation
-// ---------------------------------------------------------------------------
+/**
+ * --------------------------------------------------------------------------- Circuit breaker —
+ * the fail-closed cooldown behind sustained saturation
+ * ---------------------------------------------------------------------------
+ */
 
-// Deterministic tuning: a refusal whose back-off is >= 10s is a strike; 3 strikes
-// inside 60s trip the breaker. The cooldown (120s) is deliberately DIFFERENT from
-// the strike limiter's empty-bucket delay (60s at 1 msg/min) so assertions can
-// tell a bucket refusal (60) from a breaker-governed one (120) — with equal
-// values the trip-moment response would be untestable.
+/**
+ * Deterministic tuning: a refusal whose back-off is >= 10s is a strike; 3 strikes inside 60s
+ * trip the breaker. The cooldown (120s) is deliberately DIFFERENT from the strike limiter's
+ * empty-bucket delay (60s at 1 msg/min) so assertions can tell a bucket refusal (60) from a
+ * breaker-governed one (120) — with equal values the trip-moment response would be untestable.
+ */
 const BREAKER = {
   longWaitSeconds: 10,
   threshold: 3,
@@ -152,7 +155,7 @@ const BREAKER = {
   cooldownMs: 120_000,
 };
 
-/** messagesPerMin: 1 -> an empty bucket's back-off is ~60s, always a strike. */
+// messagesPerMin: 1 -> an empty bucket's back-off is ~60s, always a strike.
 const strikeLimiter = (
   clock: Clock,
 ): TokenBucketRateLimiter =>
@@ -180,9 +183,11 @@ describe('TokenBucketRateLimiter circuit breaker', () => {
       expect(r.ok).toBe(false);
       if (!r.ok) expect(r.error.retryAfterSeconds).toBe(60);
     }
-    // …but the THIRD strike trips the breaker, and telling the caller "60s"
-    // would land its retry inside the open breaker (a wasted call): the trip
-    // response must already carry the 120s cooldown.
+    /**
+     * …but the THIRD strike trips the breaker, and telling the caller "60s" would land its
+     * retry inside the open breaker (a wasted call): the trip response must already carry the
+     * 120s cooldown.
+     */
     const tripping = await consume(limiter);
     expect(tripping.ok).toBe(false);
     if (!tripping.ok) {

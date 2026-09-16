@@ -1,19 +1,7 @@
 /**
- * setup — the NON-TTY / `--no-input` / CI branch (the ISATTY guard, decided ONCE
- * at entry). This branch is the automation-and-security contract: setup is
- * interactive by nature (it logs in and reads a PIN and NEVER reads secrets from
- * a pipe), so on a non-terminal it MUST NOT block on stdin. Instead it:
- *
- *   1. prints the CURRENT config (endpoints + scope/verbs summary) to STDERR, and
- *   2. exits NON-ZERO,
- *
- * WITHOUT loading the interactive Ink app or touching the daemon operator, and
- * WITHOUT ever echoing a secret (STDOUT stays protocol-clean; api creds / session
- * strings are never printed).
- *
- * We drive the REAL `runSetup` end-to-end with fail-fast Ink/operator seams. The
- * config itself is a REAL temp file, so the bounded shared config decoder and
- * `formatNonInteractivePlan` path are exercised.
+ * The non-TTY, `--no-input` and CI branch, decided once at entry. Setup is interactive by
+ * nature and never reads secrets from a pipe, so on a non-terminal it prints the current config
+ * to STDERR and exits non-zero, without loading the interactive stack.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
@@ -39,18 +27,19 @@ const unusedOperator = new Proxy({} as OperatorClientPort, {
   },
 });
 
-// ---------------------------------------------------------------------------
-// Constants — a distinctive api-cred pre-fill so we can prove it never leaks.
-// ---------------------------------------------------------------------------
-
+/**
+ * --------------------------------------------------------------------------- Constants — a
+ * distinctive api-cred pre-fill so we can prove it never leaks.
+ * ---------------------------------------------------------------------------
+ */
 const API_ID = 7654321;
 const API_HASH = 'deadbeefdeadbeefdeadbeefdeadbeef';
 
-// ---------------------------------------------------------------------------
-// STDIO capture — suppress + record. The plan goes to STDERR; STDOUT is a
-// protocol surface and MUST stay empty on this branch.
-// ---------------------------------------------------------------------------
-
+/**
+ * --------------------------------------------------------------------------- STDIO capture —
+ * suppress + record. The plan goes to STDERR; STDOUT is a protocol surface and MUST stay empty
+ * on this branch. ---------------------------------------------------------------------------
+ */
 const stdoutChunks: string[] = [];
 const stderrChunks: string[] = [];
 const stdoutText = (): string => stdoutChunks.join('');
@@ -60,10 +49,11 @@ const ORIGINAL_STDIN_TTY = process.stdin.isTTY;
 const ORIGINAL_STDERR_TTY = process.stderr.isTTY;
 const ORIGINAL_EXIT_CODE = process.exitCode;
 
-// ---------------------------------------------------------------------------
-// Temp-config helpers — a REAL file so the genuine read + parse path is used.
-// ---------------------------------------------------------------------------
-
+/**
+ * --------------------------------------------------------------------------- Temp-config
+ * helpers — a REAL file so the genuine read + parse path is used.
+ * ---------------------------------------------------------------------------
+ */
 const tempDirs: string[] = [];
 
 const writeConfigFile = async (contents: string): Promise<string> => {
@@ -84,10 +74,6 @@ const optionsFor = (configPath: string): SetupOptions => ({
   operatorClient: unusedOperator,
 });
 
-// ---------------------------------------------------------------------------
-// Lifecycle
-// ---------------------------------------------------------------------------
-
 beforeEach(() => {
   stdoutChunks.length = 0;
   stderrChunks.length = 0;
@@ -103,9 +89,11 @@ beforeEach(() => {
     }
     return true;
   });
-  // Baseline: a fully interactive terminal. Each test flips a stream to force the
-  // non-TTY branch, so the ISATTY decision under test is deterministic regardless
-  // of the runner's real streams.
+  /**
+   * Baseline: a fully interactive terminal. Each test flips a stream to force the non-TTY
+   * branch, so the ISATTY decision under test is deterministic regardless of the runner's real
+   * streams.
+   */
   process.stdin.isTTY = true;
   process.stderr.isTTY = true;
   process.exitCode = undefined;
@@ -123,10 +111,6 @@ afterEach(async () => {
   );
   tempDirs.length = 0;
 });
-
-// ---------------------------------------------------------------------------
-// 1) The current config summary is printed; the process exits non-zero.
-// ---------------------------------------------------------------------------
 
 describe('setup non-TTY branch — plan summary', () => {
   it('prints the current endpoints with their scope summary, then exits non-zero', async () => {
@@ -181,10 +165,11 @@ describe('setup non-TTY branch — plan summary', () => {
     expect(stdoutText()).toBe('');
   });
 
-  // -------------------------------------------------------------------------
-  // 2) Never blocks: no interactive Console, no prompt, no infra concretes.
-  // -------------------------------------------------------------------------
-
+  /**
+   * ------------------------------------------------------------------------- 2) Never blocks:
+   * no interactive Console, no prompt, no infra concretes.
+   * -------------------------------------------------------------------------
+   */
   it('never enters the interactive app or touches the daemon operator', async () => {
     const configPath = await writeConfigFile(
       JSON.stringify({
@@ -201,10 +186,6 @@ describe('setup non-TTY branch — plan summary', () => {
     expect(process.exitCode).toBe(1);
     expect(runSetupApp).not.toHaveBeenCalled();
   });
-
-  // -------------------------------------------------------------------------
-  // 3) First run (no config file yet) — first-run notice, still non-zero.
-  // -------------------------------------------------------------------------
 
   it('on first run (no config file yet) prints the first-run notice and TTY guidance, still exiting non-zero', async () => {
     // A path that does not exist: readFile fails, the plan renders the first-run
@@ -227,10 +208,11 @@ describe('setup non-TTY branch — plan summary', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// 4) Secrets are masked — api creds / session material never reach any stream.
-// ---------------------------------------------------------------------------
-
+/**
+ * --------------------------------------------------------------------------- 4) Secrets are
+ * masked — api creds / session material never reach any stream.
+ * ---------------------------------------------------------------------------
+ */
 describe('setup non-TTY branch — secret masking', () => {
   it('never prints the api_hash pre-fill or api_id on any stream, and marks the session dir as secret-free', async () => {
     const configPath = await writeConfigFile(
@@ -259,10 +241,11 @@ describe('setup non-TTY branch — secret masking', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// 5) Both streams must be terminals — a non-TTY STDERR alone forces the branch.
-// ---------------------------------------------------------------------------
-
+/**
+ * --------------------------------------------------------------------------- 5) Both streams
+ * must be terminals — a non-TTY STDERR alone forces the branch.
+ * ---------------------------------------------------------------------------
+ */
 describe('setup non-TTY branch — ISATTY requires BOTH streams', () => {
   it('takes the non-interactive branch when STDERR is not a TTY even though STDIN is', async () => {
     const configPath = await writeConfigFile(

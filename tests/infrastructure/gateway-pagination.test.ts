@@ -117,7 +117,7 @@ class PaginationTelegramClient {
     }
   }
 
-  /** Serves the gateway's raw messages.Search (offsetId 0 = "no offset"). */
+  // Serves the gateway's raw messages.Search (offsetId 0 = "no offset").
   private serveSearch(request: Api.messages.Search): Promise<Api.messages.Messages> {
     if (!(request.peer instanceof Api.InputPeerUser)) {
       return Promise.reject(new Error('expected user peer'));

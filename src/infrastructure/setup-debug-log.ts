@@ -33,20 +33,20 @@ const appendDiagnostic = (entry: string): boolean => {
     writeFileSync(descriptor, entry, 'utf8');
     return true;
   } catch {
-    /* never let logging break setup */
+    // never let logging break setup
     return false;
   } finally {
     if (descriptor !== undefined) {
       try {
         closeSync(descriptor);
       } catch {
-        /* never let logging break setup */
+        // never let logging break setup
       }
     }
   }
 };
 
-/** Append caller-owned, non-secret setup diagnostics. */
+// Append caller-owned, non-secret setup diagnostics.
 export const debugLog = (context: string, detail = ''): boolean =>
   appendDiagnostic(
     `[${new Date().toISOString()}] ${cleanDiagnostic(context, 128)}${
@@ -54,7 +54,7 @@ export const debugLog = (context: string, detail = ''): boolean =>
     }\n`,
   );
 
-/** Append a secret-safe exception fingerprint and stack location. */
+// Append a secret-safe exception fingerprint and stack location.
 export const debugLogError = (context: string, error: unknown): boolean => {
   const name =
     error instanceof Error ? cleanDiagnostic(error.name, 128) : 'UnknownError';

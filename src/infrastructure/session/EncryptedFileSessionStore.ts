@@ -1,33 +1,11 @@
 /**
- * EncryptedFileSessionStore — encrypted session and policy persistence adapter.
- * Implements daemon-only `SessionAdmin`, `SealedPolicyStore`, and runtime unlock
- * (the encrypted policy blob). At rest: the Telegram session string + sealed api
- * creds, and the sealed policy, are AES-256-GCM encrypted, files are 0600, writes
- * are atomic, key material and plaintext are zeroized after use, and SECRETS ARE
- * NEVER LOGGED.
- *
- * Every blob (each session + the ONE global policy blob) is sealed DIRECTLY under
- * one or more operator channels via the DEK-over-slots {@link SessionEnvelopeCodec}: a
- * passphrase seals a `passphrase` slot, the host machine id a `machine` slot, an
- * exported recovery keyfile a `recovery` slot. A posture / PIN change
- * decrypts-and-re-encrypts every blob under the new slot set, each written
- * atomically — a crash mid-change may leave an unwritten blob needing re-login.
- * Anti-rollback is out of scope (a same-uid writer can restore an older blob);
- * confidentiality + tamper-evidence come from AES-256-GCM.
- *
- * Posture is DERIVED from the slots on a representative blob, never a stored flag:
- *   HARDENED = a passphrase/recovery slot and NO machine slot.
- *   SMOOTH   = a machine slot.
- *   none     = nothing sealed yet.
- *
- * Unlock precedence (fail-closed, no fallthrough): the composition root resolves
- * env-channel precedence and hands the single winning source here. A PIN channel
- * (passphrase/keyfile) is tried against passphrase/recovery slots ONLY —
- * a wrong PIN NEVER falls through to the machine slot. Only a machine source uses
- * the machine slot.
- *
- * Encapsulation: only the immutable `SessionMaterial` DTO and raw policy bytes
- * cross the port boundary. No GramJS.
+ * Encrypted session and policy persistence: daemon-only `SessionAdmin`, `SealedPolicyStore` and
+ * runtime unlock.
+ * At rest everything is AES-256-GCM, files are 0600, writes are atomic, key material and
+ * plaintext are zeroized after use, and secrets are NEVER logged.
+ * Every blob — each session plus the ONE global policy blob — is sealed directly under one or
+ * more operator channels through the DEK-over-slots codec: a passphrase seals a `passphrase`
+ * slot, the host machine id a `machine` slot, an exported recovery keyfile a `recovery` slot.
  */
 import { randomBytes } from 'node:crypto';
 import { readdir, rm } from 'node:fs/promises';
@@ -81,38 +59,29 @@ import {
 } from './session-envelope.js';
 import { SystemMachineIdReader, type MachineIdReader } from './machine-id.js';
 
-/** Posture-correct scrypt cost. Persisted per-slot so old files stay readable. */
+// Persisted per slot, so old files stay readable after a cost change.
 export interface SessionKdfProfile {
-  /** Passphrase/recovery slots — OWASP-grade (default N=2^17). */
   readonly pin: KdfParams;
-  /** Machine slot — lighter (default N=2^15); the machine id is high-entropy-ish. */
   readonly machine: KdfParams;
 }
 
 export interface EncryptedFileSessionStoreOptions {
-  /** Directory holding encrypted `<ref>.session` files + `policy.blob` (created 0700). */
   readonly directory: string;
-  /**
-   * The single out-of-band key source this store seals AND unlocks with. The
-   * composition root resolves env-channel precedence eagerly and hands the one
-   * winning source here. For SMOOTH this is `{ kind: 'machine' }`; for HARDENED a
-   * `passphrase` or `keyfile` (a recovery keyfile unlocks via `keyfile`).
-   */
+  // The single out-of-band source this store seals AND unlocks with; the composition root
+  // resolves env-channel precedence and hands over the one winner.
   readonly keySource: SessionKeySource;
-  /** Host machine-id reader for the SMOOTH machine slot (injectable for tests). */
   readonly machineIdReader?: MachineIdReader;
-  /** Override scrypt cost (tests use a cheap profile; production uses the defaults). */
   readonly kdf?: SessionKdfProfile;
 }
 
 const SALT_BYTES = 16;
 const SESSION_FILE_SUFFIX = '.session';
-/** The ONE global sealed policy blob, beside the session blobs (excluded from listRefs). */
+// The one global policy blob, beside the session blobs; excluded from listRefs.
 const POLICY_FILE = 'policy.blob';
-/** A freshly minted recovery keyfile holds this many random bytes (raw, 0600). */
 const RECOVERY_SECRET_BYTES = 32;
 
-/** Production scrypt cost: passphrase/recovery N=2^17 (OWASP), machine N=2^15. */
+// Passphrase and recovery cost is OWASP-grade; the machine slot is lighter because the id is
+// high-entropy-ish.
 const DEFAULT_KDF: SessionKdfProfile = {
   pin: { N: 1 << 17, r: 8, p: 1 },
   machine: { N: 1 << 15, r: 8, p: 1 },
@@ -134,10 +103,10 @@ const unavailable = (message: string): AppError =>
   appError(AppErrorCode.GatewayUnavailable, message);
 
 /**
- * The HARD hardened invariant: a PIN/recovery slot must NEVER coexist with a
- * machine slot (a machine slot beside a PIN would silently downgrade unlock to
- * the machine key). Enforced before every seal — and, for the recovery export,
- * BEFORE the 0600 keyfile is written so a rejected seal leaves no dangling file.
+ * HARD hardened invariant: a PIN or recovery slot must NEVER coexist with a machine slot, which
+ * would silently downgrade unlock to the machine key. Enforced before every seal — and, for the
+ * recovery export, before the 0600 keyfile is written, so a rejected seal leaves no dangling
+ * file.
  */
 const ensureNoMachineWithPin = (
   kinds: readonly SlotKind[],
@@ -149,7 +118,7 @@ const ensureNoMachineWithPin = (
     : ok(undefined);
 };
 
-/** The slot kind a source seals/unlocks (keyfile bytes are a passphrase candidate). */
+// Keyfile bytes count as a passphrase candidate.
 const slotKindForSource = (source: SessionKeySource): SlotKind => {
   switch (source.kind) {
     case 'passphrase':
@@ -162,13 +131,12 @@ const slotKindForSource = (source: SessionKeySource): SlotKind => {
   }
 };
 
-/** Which slot kinds an unlock source may legitimately open (precedence at unlock). */
 const candidateSlotKinds = (source: SessionKeySource): readonly SlotKind[] => {
   switch (source.kind) {
     case 'passphrase':
       return ['passphrase'];
-    // A keyfile's raw bytes are a passphrase candidate against either slot kind
-    // (this is how an exported recovery keyfile unlocks — no separate source).
+    // A keyfile's raw bytes are a passphrase candidate against either slot kind — this is how
+    // an exported recovery keyfile unlocks, with no separate source.
     case 'keyfile':
       return ['passphrase', 'recovery'];
     case 'machine':
@@ -178,12 +146,8 @@ const candidateSlotKinds = (source: SessionKeySource): readonly SlotKind[] => {
   }
 };
 
-/**
- * A resolved slot template: the secret + KDF cost + kind, resolved ONCE. Each
- * blob a sweep re-seals gets a FRESH per-blob salt built from this template, so
- * one held secret seals every blob without re-reading it per file. The caller
- * owns (and zeroizes) `secret`.
- */
+// Resolved once per sweep: every blob gets a fresh per-blob salt built from this template, so
+// one held secret seals them all. The caller owns and zeroizes `secret`.
 interface PreparedSlot {
   readonly kind: SlotKind;
   readonly secret: Buffer;
@@ -194,9 +158,11 @@ export class EncryptedFileSessionStore
   implements SessionAdmin, SealedPolicyStore, RuntimeUnlockableStore
 {
   private readonly directory: string;
-  // NOT readonly: operator authentication and PIN changes swap this
-  // via setActiveSource. Every read path reads it FRESH and no unlocked plaintext
-  // is cached, so no invalidation is needed.
+  /**
+   * Not readonly: operator authentication and PIN changes swap it via setActiveSource. Every
+   * read path re-reads it fresh and no unlocked plaintext is cached, so nothing needs
+   * invalidating.
+   */
   private keySource: SessionKeySource;
   private readonly machineIdReader: MachineIdReader;
   private readonly kdf: SessionKdfProfile;
@@ -210,10 +176,7 @@ export class EncryptedFileSessionStore
     this.kdf = options.kdf ?? DEFAULT_KDF;
   }
 
-  /**
-   * List refs with an encrypted session file on disk. Setup-only. The policy blob
-   * (`policy.blob`) does not end in `.session`, so it is never listed as a ref.
-   */
+  // Setup-only. `policy.blob` does not end in `.session`, so it is never listed as a ref.
   public async listRefs(): Promise<Result<readonly SessionRefValue[], AppError>> {
     try {
       const entries = await readdir(this.directory);
@@ -225,7 +188,6 @@ export class EncryptedFileSessionStore
         const ref = SessionRef.create(
           name.slice(0, name.length - SESSION_FILE_SUFFIX.length),
         );
-        // Only accept names that are valid refs (SessionRef is the gate).
         if (isOk(ref)) {
           refs.push(ref.value);
         }
@@ -238,7 +200,7 @@ export class EncryptedFileSessionStore
     }
   }
 
-  /** The app-wide at-rest posture, derived from a representative blob's slots. Setup-only. */
+  // Derived from a representative blob's slots; setup-only.
   public async appPosture(): Promise<'none' | 'smooth' | 'hardened'> {
     const envelope = await this.representativeEnvelope();
     if (isErr(envelope)) {
@@ -252,12 +214,8 @@ export class EncryptedFileSessionStore
       : 'hardened';
   }
 
-  /**
-   * Verify `source` (default: the construction-time source) unlocks the store
-   * WITHOUT loading a session, by opening a representative blob and discarding
-   * its plaintext (the daemon's interactive unlock rejects a wrong PIN before
-   * detaching). Nothing sealed yet verifies trivially.
-   */
+  // Opens a representative blob and discards its plaintext, so a wrong PIN is rejected before
+  // detaching. Nothing sealed yet verifies trivially.
   public async verifyUnlock(
     source?: SessionKeySource,
   ): Promise<Result<void, AppError>> {
@@ -273,16 +231,11 @@ export class EncryptedFileSessionStore
     return ok(undefined);
   }
 
-  /**
-   * {@link RuntimeUnlockableStore}: swap the active unlock source at runtime. Only
-   * the descriptor is replaced — no key buffer is retained, and every read path
-   * re-reads `this.keySource` fresh, so the next load uses the new source.
-   */
+  // Only the descriptor is replaced — no key buffer is retained, so the next load derives from
+  // the new source.
   public setActiveSource(source: SessionKeySource): void {
     this.keySource = source;
   }
-
-  // -- session query (daemon read side) -----------------------------------
 
   public async load(
     ref: SessionRefValue,
@@ -312,14 +265,8 @@ export class EncryptedFileSessionStore
     }
   }
 
-  // -- SealedPolicyStore (the encrypted ACL policy, one global blob) -------
-
-  /**
-   * Open the sealed policy blob under the active source and return its raw
-   * plaintext (validated config JSON), or `undefined` when no policy blob exists
-   * yet. A wrong secret / tampered blob fails closed (Validation). The CALLER
-   * owns the returned buffer.
-   */
+  // `undefined` when no policy blob exists yet; a wrong secret or tampered blob fails closed.
+  // The caller owns the returned buffer.
   public async loadPolicy(): Promise<Result<Buffer | undefined, AppError>> {
     const envelope = await this.readPolicyEnvelope();
     if (isErr(envelope)) {
@@ -331,12 +278,8 @@ export class EncryptedFileSessionStore
     return this.openBytesVia(envelope.value, this.keySource);
   }
 
-  /**
-   * Seal `bytes` (validated config JSON) into the policy blob atomically (0600).
-   * A first write uses the active source. Later writes authenticate through that
-   * source and preserve the existing slot set, so exported recovery access stays
-   * valid without retaining the recovery secret.
-   */
+  // Later writes authenticate through the active source and preserve the existing slot set, so
+  // exported recovery access stays valid without retaining the recovery secret.
   public async savePolicy(bytes: Buffer): Promise<Result<void, AppError>> {
     if (bytes.length > MAX_POLICY_PLAINTEXT_BYTES) {
       return err(validationError('Policy plaintext exceeds the size ceiling'));
@@ -376,12 +319,7 @@ export class EncryptedFileSessionStore
     }
   }
 
-  // -- SessionAdmin (daemon operator plane only) --------------------------
-
-  /**
-   * Persist a session directly under the active source's slot (where the chosen
-   * posture lands on first write).
-   */
+  // The first write is where the chosen posture lands.
   public async save(
     material: SessionMaterial,
   ): Promise<Result<void, AppError>> {
@@ -403,19 +341,16 @@ export class EncryptedFileSessionStore
     }
   }
 
-  /** Set the app PIN (SMOOTH -> HARDENED): re-seal every blob under the PIN slot. */
   public async addKek(input: AddKekInput): Promise<Result<void, AppError>> {
     return this.reseal(input.current, input.pin);
   }
 
-  /** Change the app PIN (HARDENED -> HARDENED): re-seal every blob under the new PIN. */
   public async rewrapKek(
     input: RewrapKekInput,
   ): Promise<Result<void, AppError>> {
     return this.reseal(input.current, input.replacement);
   }
 
-  /** Remove the app PIN (HARDENED -> SMOOTH): re-seal every blob under a machine slot. */
   public async removeKek(
     input: RemoveKekInput,
   ): Promise<Result<void, AppError>> {
@@ -423,11 +358,9 @@ export class EncryptedFileSessionStore
   }
 
   /**
-   * Export one recovery snapshot (stays HARDENED). Mints a fresh
-   * random recovery secret, writes it 0600 (raw bytes, so the file IS the
-   * secret), and re-seals EVERY blob (each session + the policy) under the
-   * current PIN slot + the new recovery slot — so the recovery keyfile can later
-   * unlock everything currently on disk.
+   * Mints a fresh random recovery secret, writes it 0600 — the file IS the secret — and
+   * re-seals every blob under the current PIN slot plus the new recovery slot, so the keyfile
+   * can later unlock everything on disk.
    */
   public async emitRecoveryKeyfile(
     input: EmitRecoveryKeyfileInput,
@@ -450,10 +383,8 @@ export class EncryptedFileSessionStore
       };
       const prepared = [currentSlot.value, recoverySlot];
 
-      // Enforce the hardened invariant BEFORE writing the 0600 recovery keyfile,
-      // so an invariant-rejected seal (e.g. an unsupported machine-bound
-      // `current`) leaves no dangling keyfile. A LATER seal/write failure is
-      // handled below by removing the orphan keyfile.
+      // Enforce the hardened invariant BEFORE writing the 0600 keyfile, so a rejected seal
+      // leaves no dangling file behind.
       const invariant = ensureNoMachineWithPin(prepared.map((p) => p.kind));
       if (isErr(invariant)) {
         return invariant;
@@ -466,9 +397,8 @@ export class EncryptedFileSessionStore
 
       const swept = await this.resealAll(input.current, prepared);
       if (isErr(swept)) {
-        // The re-seal failed, so the recovery slot was not committed and the
-        // keyfile we just wrote is an inert orphan. Remove it so a failed export
-        // leaves no dangling 0600 keyfile behind (best-effort).
+        // The re-seal failed, so the recovery slot was never committed and the keyfile is an
+        // inert orphan — remove it (best-effort).
         await rm(input.outputPath, { force: true }).catch(() => undefined);
         return swept;
       }
@@ -479,10 +409,7 @@ export class EncryptedFileSessionStore
     }
   }
 
-  /**
-   * Delete the encrypted session file for a ref (daemon operator plane only).
-   * Backs the home-menu "Log out". Idempotent: a missing file is success.
-   */
+  // Idempotent: a missing file is success.
   public async remove(ref: SessionRefValue): Promise<Result<void, AppError>> {
     try {
       await rm(this.filePathFor(ref), { force: true });
@@ -494,15 +421,10 @@ export class EncryptedFileSessionStore
     }
   }
 
-  // -- posture / PIN change: re-seal every blob ---------------------------
-
   /**
-   * Re-key the APP (all accounts + the policy at once). Prepares the ONE new
-   * slot (secret resolved once), then decrypts-and-re-encrypts every blob under
-   * it. Best-effort per blob: each is written atomically, so a failure or crash
-   * leaves that blob on its OLD slot set (needing re-login) while others migrate;
-   * the first error is returned. (The multi-slot path — recovery export — builds
-   * its own PreparedSlot set and calls resealAll directly.)
+   * Re-keys the whole app at once: the new slot's secret is resolved once, then every blob is
+   * decrypted and re-encrypted under it. Best-effort per blob — a failure or crash leaves that
+   * blob on its old slot set, needing re-login, while the others migrate.
    */
   private async reseal(
     current: SessionKeySource,
@@ -519,7 +441,6 @@ export class EncryptedFileSessionStore
     }
   }
 
-  /** Re-seal every blob (each session + the policy) under `prepared`, opening via `current`. */
   private async resealAll(
     current: SessionKeySource,
     prepared: readonly PreparedSlot[],
@@ -567,7 +488,6 @@ export class EncryptedFileSessionStore
     return firstError === undefined ? ok(undefined) : err(firstError);
   }
 
-  /** Open ONE blob under `current`, re-seal its bytes under fresh slots from `prepared`, atomic write. */
   private async resealEnvelope(
     path: string,
     envelope: SessionEnvelopeV2,
@@ -590,9 +510,6 @@ export class EncryptedFileSessionStore
     }
   }
 
-  // -- internals ----------------------------------------------------------
-
-  /** Enforce the hardened invariant, seal the bytes under the codec, atomically write. */
   private async sealBlob(
     path: string,
     plaintext: Buffer,
@@ -620,12 +537,8 @@ export class EncryptedFileSessionStore
       : ok(undefined);
   }
 
-  /**
-   * Open a v2 envelope through the slots `source` may unlock and return the raw
-   * plaintext. The secret is minted here and zeroized in `finally`. Fail-closed +
-   * slot-aware: a PIN source never falls through to the machine slot, and the
-   * machine branch surfaces the mismatch/unavailable diagnosis.
-   */
+  // Fail-closed and slot-aware: a PIN source never falls through to the machine slot. The
+  // secret is minted here and zeroized in `finally`.
   private async openBytesVia(
     envelope: SessionEnvelopeV2,
     source: SessionKeySource,
@@ -679,7 +592,6 @@ export class EncryptedFileSessionStore
     }
   }
 
-  /** Resolve a source into a slot template (secret + posture-correct cost). */
   private async prepareSlot(
     source: SessionKeySource,
   ): Promise<Result<PreparedSlot, AppError>> {
@@ -696,22 +608,18 @@ export class EncryptedFileSessionStore
     });
   }
 
-  /** Build a per-blob slot secret (fresh salt) from a resolved template. */
   private toSlotSecret(prepared: PreparedSlot): SlotSecret {
     return {
       kind: prepared.kind,
-      // Borrow (never zeroize here): the caller owns the template's secret.
+      // Borrow, never zeroize here: the caller owns the template's secret.
       secret: prepared.secret,
       kdfParams: prepared.kdfParams,
       salt: randomBytes(SALT_BYTES),
     };
   }
 
-  /**
-   * Turn a {@link SessionKeySource} into the raw secret bytes the KEK derives
-   * from: NFC-normalised passphrase bytes, raw keyfile/recovery file bytes, or
-   * the host machine-id bytes. Caller owns zeroization of the returned buffer.
-   */
+  // NFC-normalised passphrase bytes, raw keyfile bytes, or host machine-id bytes. The caller
+  // owns zeroization of the result.
   private async resolveSecret(
     source: SessionKeySource,
   ): Promise<Result<Buffer, AppError>> {
@@ -738,7 +646,6 @@ export class EncryptedFileSessionStore
     }
   }
 
-  /** Read + parse a session blob envelope; NotFound when the file is absent. */
   private async readEnvelope(
     ref: SessionRefValue,
   ): Promise<Result<SessionEnvelopeV2, AppError>> {
@@ -749,14 +656,12 @@ export class EncryptedFileSessionStore
       : ok(read.value);
   }
 
-  /** Read + parse the policy blob envelope; `undefined` when the file is absent. */
   private readPolicyEnvelope(): Promise<
     Result<SessionEnvelopeV2 | undefined, AppError>
   > {
     return this.readEnvelopeFile(this.policyPath(), 'Policy blob');
   }
 
-  /** Shared bounded read + parse; `undefined` when the file is absent. */
   private async readEnvelopeFile(
     path: string,
     label: string,
@@ -793,7 +698,6 @@ export class EncryptedFileSessionStore
       : err(validationError(`${label} envelope is malformed`));
   }
 
-  /** The representative blob whose slots define the posture: policy, else any session. */
   private async representativeEnvelope(): Promise<
     Result<SessionEnvelopeV2 | undefined, AppError>
   > {
@@ -814,7 +718,7 @@ export class EncryptedFileSessionStore
     return ok(undefined);
   }
 
-  /** Recovery material must never alias a managed blob or masquerade as a session. */
+  // Recovery material must never alias a managed blob or masquerade as a session.
   private isManagedStatePath(outputPath: string): boolean {
     const fromState = relative(resolve(this.directory), resolve(outputPath));
     return (
@@ -851,8 +755,8 @@ export class EncryptedFileSessionStore
   }
 
   private filePathFor(ref: SessionRefValue): string {
-    // `ref` is validated by SessionRef.create (^[a-z0-9][a-z0-9_-]{0,63}$) so it
-    // is always a safe single path segment — no traversal possible.
+    // `ref` is validated by SessionRef.create, so it is always a safe single path segment — no
+    // traversal possible.
     return join(this.directory, `${ref}${SESSION_FILE_SUFFIX}`);
   }
 }

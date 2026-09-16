@@ -16,13 +16,13 @@ import { ClassifiedLine } from '../components/index.js';
 export interface PromptFrameProps {
   readonly title: string;
   readonly subtitle?: string;
-  /** Persistent full-contrast context lines shown above the field while typing. */
+  // Persistent full-contrast context lines shown above the field while typing.
   readonly help?: readonly string[];
-  /** A recoverable validation error shown under the field (stays open on error). */
+  // A recoverable validation error shown under the field (stays open on error).
   readonly error?: string;
-  /** The key-hint line (e.g. "enter submit · esc cancel"). */
+  // The key-hint line (e.g. "enter submit · esc cancel").
   readonly hint: string;
-  /** The actual input field (a thin `@inkjs/ui` wrapper). */
+  // The actual input field (a thin `@inkjs/ui` wrapper).
   readonly children: ReactNode;
   readonly theme?: Theme;
 }

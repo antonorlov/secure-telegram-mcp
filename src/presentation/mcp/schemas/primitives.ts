@@ -1,48 +1,37 @@
 /**
- * Shared, bounded Zod input primitives for tool-argument validation + error text across
- * every tool. Tool authors compose these into their `inputShape`; identical validation and
- * error messages everywhere.
- *
- * A chat reference is the discriminated union `{ kind: 'id' | 'username' | 'me', value }`.
- * Here we do only syntactic normalization — strip a leading '@', parse the id form,
- * validate the username grammar — and emit the unresolved domain `PeerRef`. Resolution
- * belongs to endpoint binding: a temporary gateway-owned resolver expands only the
- * declared scope, then tools receive the resulting scope-bound client.
- *
- * Zod is pinned (zod 3.25.76) to the exact version the MCP SDK is built against, so a
- * `z.ZodRawShape` produced here is structurally accepted by `McpServer.registerTool`. Use
- * field-level `.describe()` — the SDK propagates per-field, not top-level, descriptions.
+ * Shared, bounded Zod input primitives composed into each tool's `inputShape`, so validation
+ * and error text are identical everywhere.
+ * A chat reference is the discriminated union `{ kind, value }`, and only syntactic
+ * normalization happens here — strip a leading '@', parse the id form, validate the username
+ * grammar — emitting an unresolved domain `PeerRef`. Resolution belongs to endpoint binding,
+ * where a temporary gateway-owned resolver expands only the declared scope.
+ * Zod is pinned to the exact version the MCP SDK is built against, so a `z.ZodRawShape`
+ * produced here is structurally accepted by `registerTool`. Use field-level `.describe()`: the
+ * SDK propagates per-field, not top-level, descriptions.
  */
 import { z } from 'zod';
 import { isErr } from '../../../shared/index.js';
 import { PeerRefFactory, ChatId, type PeerRef } from '../../../domain/index.js';
 
-// Bounds (named constants for every cap; documented, not magic numbers)
-
-/** Telegram per-chat message ids are 32-bit ints. */
+// Telegram per-chat message ids are 32-bit ints.
 export const MAX_MESSAGE_ID = 2_147_483_647;
-/** Batch cap for multi-message ops (delete / forward) — anti-abuse bound. */
+// Batch cap for multi-message ops (delete / forward) — anti-abuse bound.
 export const MAX_MESSAGE_BATCH = 100;
-/** Telegram text message hard limit. */
+// Telegram text message hard limit.
 export const MAX_MESSAGE_TEXT = 4096;
-/** Telegram media caption hard limit. */
+// Telegram media caption hard limit.
 export const MAX_CAPTION = 1024;
-/** Default page size when a caller omits `limit`. */
+// Default page size when a caller omits `limit`.
 export const DEFAULT_PAGE_LIMIT = 20;
-/** Upper bound a single read may return (output-size discipline). */
+// Upper bound a single read may return (output-size discipline).
 export const MAX_PAGE_LIMIT = 100;
-/** Opaque cursors are black boxes; bound their length defensively. */
+// Opaque cursors are black boxes; bound their length defensively.
 export const MAX_CURSOR_LENGTH = 4096;
-/** Idempotency-key length cap. */
+// Idempotency-key length cap.
 export const MAX_IDEMPOTENCY_KEY_LENGTH = 128;
-/**
- * Peer-id string cap (bound a model-supplied field before any superlinear work).
- * Canonical ids incl. the -100 channel prefix are <= ~20 digits; 32 is generous. The
- * `.max()` runs before `.regex()`/`BigInt()` so an oversized payload is rejected cheaply.
- */
+// The `.max()` runs before `.regex()` and `BigInt()`, so an oversized model-supplied payload is
+// rejected cheaply. Canonical ids, including the -100 channel prefix, are at most ~20 digits.
 export const MAX_PEER_ID_LENGTH = 32;
-
-// PeerRef — discriminated union, syntactic normalization only, -> domain PeerRef
 
 const peerIdVariant = z.object({
   kind: z.literal('id'),
@@ -60,13 +49,8 @@ const peerUsernameVariant = z.object({
 
 const peerMeVariant = z.object({ kind: z.literal('me') });
 
-/**
- * A chat reference. The output is an un-resolved domain `PeerRef`:
- * - `id`      -> canonical `ChatId` (purely local parse; no network).
- * - `username`-> kept as a username variant (not resolved here, by invariant).
- * - `me`      -> the self variant.
- * Malformed id/username forms fail validation (surfaced as JSON-RPC -32602).
- */
+// Emits an unresolved domain `PeerRef`: an id parses locally with no network, a username stays
+// a username variant by invariant, and `me` is the self variant.
 export const peerRefSchema = z
   .discriminatedUnion('kind', [
     peerIdVariant,
@@ -105,8 +89,6 @@ export const peerRefSchema = z
     }
   });
 
-// Message ids
-
 export const messageIdSchema = z
   .number()
   .int()
@@ -120,10 +102,8 @@ export const messageIdsSchema = z
   .max(MAX_MESSAGE_BATCH)
   .describe(`Between 1 and ${String(MAX_MESSAGE_BATCH)} message ids.`);
 
-/**
- * A forum-topic id IS a per-chat message id (the topic root's service
- * message), so it shares the messageId bounds; only the meaning differs.
- */
+// A forum-topic id IS a per-chat message id — the topic root's service message — so it shares
+// the messageId bounds; only the meaning differs.
 export const topicIdSchema = z
   .number()
   .int()
@@ -134,13 +114,8 @@ export const topicIdSchema = z
       'Obtain from list_topics or from a message’s topicId. Only valid in forum supergroups.',
   );
 
-// Pagination — limit clamped into range; opaque cursor bounded
-
-/**
- * A page-size schema that clamps (rather than rejects) out-of-range values into
- * `[1, MAX_PAGE_LIMIT]`, defaulting to `DEFAULT_PAGE_LIMIT` when omitted. Clamping keeps a
- * slightly-wrong model request usable while still enforcing the hard upper bound.
- */
+// Clamps into `[1, MAX_PAGE_LIMIT]` instead of rejecting, so a slightly-wrong model request
+// stays usable while the hard upper bound still holds.
 export const limitSchema = z
   .number()
   .int()
@@ -157,8 +132,6 @@ export const cursorSchema = z
   .min(1)
   .max(MAX_CURSOR_LENGTH)
   .describe('Opaque pagination cursor returned by a prior page; pass verbatim.');
-
-// Text payloads + idempotency
 
 export const messageTextSchema = z
   .string()
@@ -182,14 +155,10 @@ export const idempotencyKeySchema = z
       'policy changes, or a send Telegram accepted but reported as failed).',
   );
 
-/**
- * Emoji-length cap in UTF-16 code units. A single grapheme can be several code
- * units (flags, skin-tone / ZWJ sequences), so the cap is generous; the grapheme
- * check below is what enforces "exactly one".
- */
+// A single grapheme can be several UTF-16 code units (flags, skin-tone and ZWJ sequences), so
+// the cap is generous; the grapheme check below is what enforces "exactly one".
 export const MAX_EMOJI_LENGTH = 32;
 
-/** Count Unicode grapheme clusters (user-perceived characters) in a string. */
 const graphemeCount = (value: string): number => {
   const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
   let count = 0;
@@ -199,11 +168,8 @@ const graphemeCount = (value: string): number => {
   return count;
 };
 
-/**
- * A single emoji to react with: one grapheme cluster, length-capped. Rejecting
- * multi-grapheme input at the schema layer keeps arbitrary strings out of the
- * reaction payload (the gateway only ever forwards a single standard emoticon).
- */
+// Rejecting multi-grapheme input at the schema layer keeps arbitrary strings out of the
+// reaction payload — the gateway only ever forwards a single standard emoticon.
 export const emojiSchema = z
   .string()
   .trim()

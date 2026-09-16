@@ -1,25 +1,9 @@
 /**
- * Application-layer security guarantees, end-to-end through the USE-CASE engine
- * + registry with MOCKED/FAKED ports (no GramJS, no network). With the
- * AclGuardedScopedClient decorator removed, the per-chat verb+scope+kill ACL is
- * the use-case engine's resolve->ACL->audit path (its COMPLETENESS over every
- * tool is pinned in `sole-gate-completeness.test.ts`); this suite pins the
- * REMAINING guarantees that need a richer harness than the completeness table:
- *
- *   #1' ENUMERATOR results are RE-FILTERED (defense in depth). Even if a buggy /
- *       compromised data layer leaks an out-of-scope dialog, the registry
- *       re-verifies every enumerated peer against the resolved scope and fails
- *       the call closed.
- *   #6  Untrusted Telegram content is SANITIZED at the data layer and surfaces
- *       to the model ONLY as structured JSON under named keys (never as prose).
- *   #7  Proactive anti-ban QUOTA is enforced INDEPENDENT of FLOOD_WAIT (a
- *       quota-blocked send never reaches the writer) and IDEMPOTENT send
- *       (random_id dedup) never produces a duplicate message.
- *   prepare_media OR-gates Send over the whole scope (the per-chat-write feature).
- *
- * The real units under test are the read/write use-case orchestration, the
- * `ToolRegistry` re-filter, the real `TokenBucketRateLimiter`, and the real
- * `UnicodeSanitizer`. Only fakes/stubs cross the boundary.
+ * Application-layer security guarantees end to end through the use-case engine and registry,
+ * with faked ports and no network. The per-chat verb, scope and kill check is the engine's
+ * resolve -> ACL -> audit path; its completeness over every tool lives in
+ * `sole-gate-completeness.test.ts`, while this suite pins the guarantees that need a richer
+ * harness.
  */
 import { describe, it, expect } from 'vitest';
 import { ok, err, type Result } from '../../src/shared/index.js';
@@ -56,7 +40,7 @@ import {
 import { UnicodeSanitizer } from '../../src/infrastructure/sanitize/unicode-sanitizer.js';
 import { ToolRegistry } from '../../src/presentation/mcp/registry.js';
 import type { AnyToolDefinition } from '../../src/presentation/mcp/registry.js';
-import { createListDialogsTool } from '../../src/presentation/mcp/tools/listDialogs.js';
+import { createListDialogsTool } from '../../src/presentation/mcp/tools/read-tools.js';
 import type { ScopedClient } from '../../src/application/ports/scoped-client.js';
 import type { EndpointExecutionContext } from '../../src/application/use-cases/context.js';
 import type { Page } from '../../src/application/dtos/pagination.js';
@@ -115,10 +99,6 @@ import {
   StubRateLimiter,
   StubConfirmer,
 } from './_support.js';
-
-// ---------------------------------------------------------------------------
-// Shared fixtures
-// ---------------------------------------------------------------------------
 
 const SAMPLE_ENDPOINT_NAME: EndpointNameValue = buildEndpoint({ verbs: [] }).name;
 
@@ -254,11 +234,7 @@ class BaseScopedClient implements ScopedClient {
   }
 }
 
-// ===========================================================================
-// #1' — ENUMERATOR results are re-filtered (defense in depth)
-// ===========================================================================
-
-/** A reader that returns the dialogs it is constructed with (may leak peers). */
+// A reader that returns the dialogs it is constructed with (may leak peers).
 class FixedDialogsClient extends BaseScopedClient {
   public constructor(
     name: EndpointNameValue,
@@ -282,7 +258,7 @@ const dialogOf = (id: ChatIdType, title: string): DialogDto => ({
   isForum: false,
 });
 
-/** Minimal McpServer test double: captures each registered tool callback. */
+// Minimal McpServer test double: captures each registered tool callback.
 type CapturedTool = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
 class CapturingMcpServer {
@@ -335,7 +311,7 @@ const invokeListDialogsTool = async (
   return cb({ limit: 50 });
 };
 
-/** Pull `{ code }` out of an isError tool result without using `any`. */
+// Pull `{ code }` out of an isError tool result without using `any`.
 const errorCodeOf = (result: CallToolResult): string | undefined => {
   const block = result.content[0];
   if (block?.type !== 'text') {
@@ -390,11 +366,7 @@ describe("#1' enumerator results are re-filtered against the resolved scope", ()
   });
 });
 
-// ===========================================================================
-// #6 — untrusted content is sanitized and emitted as structured JSON
-// ===========================================================================
-
-/** A reader that returns one message carrying pre-sanitized untrusted fields. */
+// A reader that returns one message carrying pre-sanitized untrusted fields.
 class OneMessageClient extends BaseScopedClient {
   public constructor(
     name: EndpointNameValue,
@@ -413,11 +385,12 @@ describe('#6 untrusted Telegram content is sanitized at the data layer', () => {
   it('strips zero-width/bidi/BOM/control chars, NFC-normalizes, and keys the output', async () => {
     const sanitizer = new UnicodeSanitizer();
 
-    // Raw, attacker-controlled string mixing: ZWSP (U+200B), RLO bidi override
-    // (U+202E), 'd', a DECOMPOSED 'e'+combining-acute (U+0065 U+0301) that NFC
-    // folds to 'é' (U+00E9), a BEL control (U+0007), preserved \n and \t, and a
-    // trailing BOM (U+FEFF). Explicit escapes -> no invisible code points in the
-    // source, and a fully deterministic expected value.
+    /**
+     * Raw, attacker-controlled string mixing: ZWSP (U+200B), RLO bidi override (U+202E), 'd', a
+     * DECOMPOSED 'e'+combining-acute (U+0065 U+0301) that NFC folds to 'é' (U+00E9), a BEL
+     * control (U+0007), preserved \n and \t, and a trailing BOM (U+FEFF). Explicit escapes ->
+     * no invisible code points in the source, and a fully deterministic expected value.
+     */
     const rawBody = 'A\u200B\u202Ed\u0065\u0301\u0007\nB\tC\uFEFF';
     const body = sanitizer.sanitize(UntrustedTextKind.Body, rawBody);
     const sender = sanitizer.sanitize(
@@ -475,10 +448,6 @@ describe('#6 untrusted Telegram content is sanitized at the data layer', () => {
   });
 });
 
-// ===========================================================================
-// #7 — proactive anti-ban quota + idempotent send
-// ===========================================================================
-
 describe('#7 proactive anti-ban quota is enforced independent of FLOOD_WAIT', () => {
   it('blocks the over-quota send BEFORE it can reach the gateway writer', async () => {
     const clock = new FakeClock(); // fixed time -> no refill between calls
@@ -528,7 +497,7 @@ describe('#7 proactive anti-ban quota is enforced independent of FLOOD_WAIT', ()
   });
 });
 
-/** A gateway-like client that dedups sends by idempotency key (random_id, #7). */
+// A gateway-like client that dedups sends by idempotency key (random_id, #7).
 class IdempotentSendClient extends BaseScopedClient {
   public appendedCount = 0;
   public dedupHits = 0;
@@ -615,14 +584,14 @@ describe('#7 idempotent send: a repeated random_id never produces a duplicate', 
   });
 });
 
-// ===========================================================================
-// prepare_media is peer-less: it gates on "Send reachable on ANY in-scope chat"
-// (group grant ∪ any per-chat Send override), so a read-only-GROUP endpoint that
-// carries a per-chat Send override can still prepare media for its writable chat.
-// The concrete send_media re-gates the specific target per-chat, so this coarser
-// OR-gate widens nothing at dispatch. (Regression guard for the media asymmetry.)
-// ===========================================================================
-
+/**
+ * =========================================================================== prepare_media is
+ * peer-less: it gates on "Send reachable on ANY in-scope chat" (group grant ∪ any per-chat Send
+ * override), so a read-only-GROUP endpoint that carries a per-chat Send override can still
+ * prepare media for its writable chat. The concrete send_media re-gates the specific target
+ * per-chat, so this coarser OR-gate widens nothing at dispatch. (Regression guard for the media
+ * asymmetry.) ===========================================================================
+ */
 class PrepareOnlyClient extends BaseScopedClient {
   public prepared = 0;
   public override prepareMedia(

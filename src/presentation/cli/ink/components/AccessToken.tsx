@@ -1,10 +1,7 @@
 /**
- * AccessToken — the one definition of the access read-out: the minimal, colour-coded `r` / `w`
- * / `rw` token in a fixed cell a gap to the right of a {@link TitleCell}, shared by the picker
- * rows and the review matrix. Green = read-only (safe), bold amber = writable (the escalation);
- * nothing for a non-member.
- *
- * Pure projection of an already-resolved {@link EffectiveAccess}; owns no ACL logic.
+ * The one definition of the access read-out: the `r` / `w` / `rw` token in a fixed cell to the
+ * right of a TitleCell, shared by the picker rows and the review matrix. Green is read-only,
+ * bold amber is writable.
  */
 import type { FC } from 'react';
 import { Box, Text } from 'ink';

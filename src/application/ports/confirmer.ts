@@ -1,9 +1,5 @@
-/**
- * Confirmer — Human-In-The-Loop confirmation port. Write use-cases consult it
- * when the endpoint requires confirmation for the verb (`confirmWrites`). The
- * description is STRUCTURED (never raw untrusted prose) so a confirmation prompt
- * can't be hijacked by injected content.
- */
+// Human-in-the-loop confirmation. The description is structured, never raw untrusted prose, so
+// a prompt cannot be hijacked by injected content.
 import type { Result } from '../../shared/index.js';
 import type {
   EndpointNameValue,
@@ -15,12 +11,11 @@ export interface ConfirmationRequest {
   readonly endpointName: EndpointNameValue;
   readonly verb: PermissionVerb;
   readonly targetChatId?: string;
-  /** Short, operator-facing description of the side effect. No untrusted prose. */
   readonly description: string;
 }
 
 export interface Confirmer {
-  /** Ok(true) => approved; Ok(false) => declined; Err => could not ask. */
+  // Ok(true) approved; Ok(false) declined; Err could not ask.
   requestConfirmation(
     request: ConfirmationRequest,
   ): Promise<Result<boolean, AppError>>;

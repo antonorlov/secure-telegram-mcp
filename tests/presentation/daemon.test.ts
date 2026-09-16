@@ -36,8 +36,6 @@ import {
 } from '../../src/domain/index.js';
 import { unwrap } from '../../src/shared/result.js';
 
-
-
 const endpointNamed = (name: string, tokenHash: string): Endpoint =>
   Endpoint.create({
     name: unwrap(EndpointName.create(name)),
@@ -164,11 +162,13 @@ describe('readHandshakeLine', () => {
     expect(await pending).toHaveLength(MAX_HANDSHAKE_BYTES);
   });
 
-  // Regression: the daemon does async endpoint/scope setup BETWEEN reading the
-  // handshake and attaching StdioServerTransport's 'data' listener. The stream
-  // must come back PAUSED so nothing emitted in that gap is lost — a flowing
-  // listener-less stream silently discards data (this ate the client's
-  // `initialize` and hung every cold connection until the 30s client timeout).
+  /**
+   * Regression: the daemon does async endpoint/scope setup BETWEEN reading the handshake and
+   * attaching StdioServerTransport's 'data' listener. The stream must come back PAUSED so
+   * nothing emitted in that gap is lost — a flowing listener-less stream silently discards data
+   * (this ate the client's `initialize` and hung every cold connection until the 30s client
+   * timeout).
+   */
   it('returns the stream paused: same-chunk trailing bytes survive a late-attaching consumer', async () => {
     const stream = new PassThrough();
     const pending = readHandshakeLine(stream as unknown as Socket, 1000);
@@ -295,9 +295,11 @@ describe('daemon over a real socket (no Telegram — refusal paths)', () => {
       expect(wrong).toContain('unknown endpoint API key');
       expect(wrong).not.toContain(token);
 
-      // NOTE: the RIGHT key now ESTABLISHES the MCP connection (locked-but-serving);
-      // the connection-time "cannot unlock" refusal is gone. That establish +
-      // per-call SESSION_LOCKED behaviour is covered by daemon-locked-serving.test.ts.
+      /**
+       * NOTE: the RIGHT key now ESTABLISHES the MCP connection (locked-but-serving); the
+       * connection-time "cannot unlock" refusal is gone. That establish + per-call
+       * SESSION_LOCKED behaviour is covered by daemon-locked-serving.test.ts.
+       */
 
       // Operator operations are physically excluded from the MCP listener.
       const crossover = await request(

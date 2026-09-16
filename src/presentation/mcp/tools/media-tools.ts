@@ -1,46 +1,106 @@
-/**
- * `prepare_media` + `send_media` — the two-phase media flow for the write-tier `send` verb,
- * kept in one module (one capability, two tools).
- *
- *   phase 1 — `prepare_media({ localPath })` -> opaque `MediaHandleDto`. The only point a
- *       filesystem path is accepted; the use-case/gateway confine it, size-cap it, and mint an
- *       opaque handle bound to session + scope + TTL.
- *   phase 2 — `send_media({ peer, handle, caption? })` -> send ACK. Consumes only the handle
- *       (a raw path is not even in the schema — structurally un-smuggleable). Expired/forged/
- *       mismatched handles are rejected below.
- *
- * Presentation only: input shapes here are syntactic; path confinement, TTL/scope binding,
- * ACL, HITL, quota, and audit attempts live in the injected use-cases. Both acks carry only safe scalars
- * minted by our layers.
- */
 import { z } from 'zod';
 import { ok } from '../../../shared/index.js';
 import type {
+  GetMediaInfoQuery,
+  MediaInfoDto,
+  UseCase,
+  DownloadMediaQuery,
+  MediaFileDto,
   PrepareMediaCommand,
   SendMediaCommand,
   MediaHandleDto,
   SendResultDto,
-  UseCase,
 } from '../../../application/index.js';
 import type { ToolDefinition } from '../registry.js';
 import {
   peerRefSchema,
+  messageIdSchema,
   captionSchema,
   idempotencyKeySchema,
   topicIdSchema,
 } from '../schemas/primitives.js';
-import { isoInstantSchema, sendAckOutputShape } from '../schemas/outputs.js';
+import {
+  mediaOutputShape,
+  presentMedia,
+  mediaFileOutputShape,
+  presentMediaFile,
+  isoInstantSchema,
+  sendAckOutputShape,
+} from '../schemas/outputs.js';
 import { defineTool } from './define-tool.js';
 
-// --- Locally-owned bounded primitives (this feature owns path/handle; validation here is
-// syntactic only — semantic confinement is the data layer's). --
+// `get_media_info` — metadata-only view of a single message's media, mapped into the shared
+// media output shape.
+const getMediaInfoInputShape = {
+  peer: peerRefSchema,
+  messageId: messageIdSchema,
+} satisfies z.ZodRawShape;
 
-/** Conservative upper bound on an accepted local path (PATH_MAX-ish). */
+export const createGetMediaInfoTool = (
+  useCase: UseCase<GetMediaInfoQuery, MediaInfoDto>,
+): ToolDefinition<typeof getMediaInfoInputShape> =>
+  defineTool({
+    name: 'get_media_info',
+    title: 'Get media metadata',
+    description:
+      'Return METADATA ONLY (kind, mime type, size in bytes, dimensions, ' +
+      'duration, file name) for the media attached to a single in-scope ' +
+      'message. Does NOT download bytes. The file name is untrusted and is ' +
+      'surfaced under a named key, never as a bare instruction-bearing string.',
+    inputShape: getMediaInfoInputShape,
+    // `presentMedia` emits exactly the shared media shape (also nested by get_messages /
+    // search_messages), so that shape is used verbatim.
+    outputShape: mediaOutputShape,
+    useCase,
+    present: (dto) => ok({ structured: presentMedia(dto) }),
+  });
+
+/**
+ * `download_media` — media EGRESS behind its own `read_media` verb. The ACL gate, the
+ * declared-size cap checked before any byte is fetched and the confined server-generated path
+ * all live in the data layer.
+ */
+const downloadMediaInputShape = {
+  peer: peerRefSchema,
+  messageId: messageIdSchema,
+} satisfies z.ZodRawShape;
+
+export const createDownloadMediaTool = (
+  useCase: UseCase<DownloadMediaQuery, MediaFileDto>,
+): ToolDefinition<typeof downloadMediaInputShape> =>
+  defineTool({
+    name: 'download_media',
+    title: 'Download message media',
+    description:
+      'Download the media attached to a single in-scope message to a server-chosen ' +
+      'file inside the allow-listed media directory, returning the file path (NOT the ' +
+      'bytes). Requires the read_media grant — a text-only endpoint is refused. Media ' +
+      'larger than the configured download cap is refused before any bytes are fetched. ' +
+      'Every successful download submits an audit record; a sink failure is reported by ' +
+      'the service but does not remove the downloaded file. The original file name is ' +
+      'untrusted and surfaced under a named key, never as a bare instruction-bearing string.',
+    inputShape: downloadMediaInputShape,
+    outputShape: mediaFileOutputShape,
+    useCase,
+    present: (dto) => ok({ structured: presentMediaFile(dto) }),
+  });
+
+/**
+ * `prepare_media` and `send_media` — the two-phase media flow for the write-tier `send` verb,
+ * kept in one module because it is one capability.
+ * Phase 1 accepts a local path and returns an opaque, TTL-bound handle; phase 2 accepts only
+ * that handle, so a raw path is structurally un-sendable.
+ */
+
+// This feature owns the path and handle primitives; validation here is syntactic only —
+// semantic confinement belongs to the data layer.
+
+// Conservative upper bound on an accepted local path (PATH_MAX-ish).
 export const MAX_LOCAL_PATH_LENGTH = 4096;
-/** Upper bound on an opaque, gateway-minted media handle token. */
+// Upper bound on an opaque, gateway-minted media handle token.
 export const MAX_MEDIA_HANDLE_LENGTH = 1024;
 
-/** Rejects any ASCII/Unicode control character (incl. NUL) — never valid in a path. */
+// Rejects any ASCII/Unicode control character (incl. NUL) — never valid in a path.
 const CONTROL_CHAR = /\p{Cc}/u;
 
 const localPathSchema = z
@@ -64,8 +124,6 @@ const mediaHandleSchema = z
       'bound to this session, this endpoint scope, and a short TTL; expired or ' +
       'mismatched handles are rejected. Never pass a filesystem path here.',
   );
-
-// --- Phase 1 — prepare_media ---
 
 const prepareMediaInputShape = {
   localPath: localPathSchema,
@@ -111,7 +169,6 @@ export const createPrepareMediaTool = (
   });
 
 // --- Phase 2 — send_media (no path field: a raw path is structurally un-sendable) ---
-
 const sendMediaInputShape = {
   peer: peerRefSchema,
   handle: mediaHandleSchema,

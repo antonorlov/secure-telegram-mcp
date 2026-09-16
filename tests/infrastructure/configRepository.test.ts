@@ -1,29 +1,8 @@
 /**
- * FileConfigRepository — contract tests for the ACL SSOT persistence adapter.
- *
- * The config file is the SINGLE SOURCE OF TRUTH for access control (#5), so this
- * adapter is a security boundary, not mere I/O. These tests assert the invariants
- * concretely against the REAL adapter + REAL Zod schema / scope-lint / mapper
- * (no mocking of the validation pipeline — that pipeline IS the thing under test):
- *
- *   1. FAIL-CLOSED reads      — any malformed / invalid / unreadable config makes
- *                               load() return Err (default-deny); never a partial
- *                               or "best effort" success.
- *   2. Scope-lint gates       — a 0-peer (empty) declared scope is a fail-closed
- *                               ERROR; risky-but-allowed shapes (write-without-HITL,
- *                               admin elevation) are surfaced as WARNINGS that do
- *                               not block. (The broadcast-channel write check is
- *                               intentionally deferred to BIND time per
- *                               src/config/scope-lint.ts — it needs network truth
- *                               (ChatInfoDto.isBroadcast) and is out of the static
- *                               lint's scope.)
- *   3. Lossless save          — save() round-trips a ValidatedConfig through the
- *                               file and back without drift, re-validates +
- *                               re-lints so it can never persist a file load()
- *                               would later reject, and writes 0600 (#8).
- *
- * Ports are exercised through real temp files; the only injected collaborator is
- * the `warn` sink, captured so we can assert what the operator is told.
+ * Contract tests for the ACL SSOT persistence adapter — a security boundary, not mere I/O.
+ * Asserted against the real adapter with the real schema, scope-lint and mapper, since that
+ * pipeline is the thing under test: fail-closed reads, lossless round-trips, atomic 0600
+ * writes.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
@@ -37,10 +16,11 @@ import { AppErrorCode } from '../../src/application/index.js';
 import { isErr, isOk } from '../../src/shared/index.js';
 import { PermissionVerb } from '../../src/domain/index.js';
 
-// ---------------------------------------------------------------------------
-// Per-test temp sandbox + small helpers (no shared mutable state across tests).
-// ---------------------------------------------------------------------------
-
+/**
+ * --------------------------------------------------------------------------- Per-test temp
+ * sandbox + small helpers (no shared mutable state across tests).
+ * ---------------------------------------------------------------------------
+ */
 let dir: string;
 
 beforeEach(async () => {
@@ -53,7 +33,7 @@ afterEach(async () => {
 
 const configPath = (): string => join(dir, 'config.json');
 
-/** Serialize an arbitrary value to the config path and return the path. */
+// Serialize an arbitrary value to the config path and return the path.
 const writeRawConfig = async (value: unknown): Promise<string> => {
   const path = configPath();
   await writeFile(path, JSON.stringify(value, null, 2), 'utf8');
@@ -100,10 +80,6 @@ const validConfigObject = (): unknown => ({
     },
   ],
 });
-
-// ===========================================================================
-// 1. Zod validation — fail-closed read path
-// ===========================================================================
 
 describe('FileConfigRepository — Zod validation (fail-closed read path)', () => {
   it('loads a valid config into domain endpoints + kill-switch', async () => {
@@ -285,10 +261,6 @@ describe('FileConfigRepository — Zod validation (fail-closed read path)', () =
   });
 });
 
-// ===========================================================================
-// 2. Scope-lint — fail-closed errors vs. surfaced warnings
-// ===========================================================================
-
 describe('FileConfigRepository — scope-lint security gates', () => {
   it('fails closed when an endpoint declares neither chats nor folders (0-peer allow-list)', async () => {
     const warnings: string[] = [];
@@ -325,9 +297,11 @@ describe('FileConfigRepository — scope-lint security gates', () => {
   });
 
   it('does NOT warn for write-without-confirmation (opt-in default) and loads', async () => {
-    // HITL confirmation is opt-in per endpoint and defaults OFF by design, so a
-    // write endpoint with confirmWrites off is the sanctioned normal case and must
-    // NOT produce a load-time warning (that would nag on the out-of-the-box config).
+    /**
+     * HITL confirmation is opt-in per endpoint and defaults OFF by design, so a write endpoint
+     * with confirmWrites off is the sanctioned normal case and must NOT produce a load-time
+     * warning (that would nag on the out-of-the-box config).
+     */
     const warnings: string[] = [];
     const path = await writeRawConfig({
       version: 1,
@@ -398,10 +372,6 @@ describe('FileConfigRepository — scope-lint security gates', () => {
   });
 });
 
-// ===========================================================================
-// 3. Lossless save round-trip + at-rest hardening (#8)
-// ===========================================================================
-
 describe('FileConfigRepository — lossless save round-trip + at-rest hardening', () => {
   it('round-trips a validated config losslessly through save -> file -> load', async () => {
     const validated: ValidatedConfig = configSchema.parse(validConfigObject());
@@ -458,10 +428,11 @@ describe('FileConfigRepository — lossless save round-trip + at-rest hardening'
 
   it('refuses to persist a config the DOMAIN mapping rejects (@x) — save gates exactly like load', async () => {
     const base: ValidatedConfig = configSchema.parse(validConfigObject());
-    // A hand-constructed 'x' username is too short for a real Telegram username
-    // (the schema's PeerRef-factory transform rejects its '@x' serialization).
-    // save() must run the SAME pipeline load() runs, or it would write a file
-    // its own load() then refuses.
+    /**
+     * A hand-constructed 'x' username is too short for a real Telegram username (the schema's
+     * PeerRef-factory transform rejects its '@x' serialization). save() must run the SAME
+     * pipeline load() runs, or it would write a file its own load() then refuses.
+     */
     const domainInvalid: ValidatedConfig = {
       ...base,
       endpoints: [

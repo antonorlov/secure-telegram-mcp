@@ -1,4 +1,4 @@
-/** Policy-derived contexts retire without closing their shared account connection. */
+// Policy-derived contexts retire without closing their shared account connection.
 export class PolicyContexts<TContext> {
   private readonly current = new Map<string, Promise<TContext>>();
   private retired: Promise<void> = Promise.resolve();
@@ -12,7 +12,7 @@ export class PolicyContexts<TContext> {
     return this.retired;
   }
 
-  /** Share one build per endpoint and evict only the promise that failed. */
+  // Share one build per endpoint and evict only the promise that failed.
   public get(key: string, build: () => Promise<TContext>): Promise<TContext> {
     const existing = this.current.get(key);
     if (existing !== undefined) return existing;
@@ -25,7 +25,7 @@ export class PolicyContexts<TContext> {
     return building;
   }
 
-  /** Remove selected bindings synchronously, or all when keys are omitted. */
+  // Remove selected bindings synchronously, or all when keys are omitted.
   public retire(keys?: ReadonlySet<string>): void {
     const contexts: Promise<TContext>[] = [];
     for (const [key, context] of this.current) {

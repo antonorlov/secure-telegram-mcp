@@ -83,10 +83,11 @@ describe('buildReviewInput', () => {
   });
 
   it('a marked folder with an UNSELECTED child is NOT reviewed as a unit (commit demotes it)', () => {
-    // The projection drops a folderScope mark when any current child is
-    // unselected (individual chats commit instead). The review must use the
-    // SAME predicate — describing "whole folder scoped" here would approve a
-    // scope the commit does not produce.
+    /**
+     * The projection drops a folderScope mark when any current child is unselected (individual
+     * chats commit instead). The review must use the SAME predicate — describing "whole folder
+     * scoped" here would approve a scope the commit does not produce.
+     */
     const tree = buildPickerTree(
       [
         { id: '9', title: 'Ops', kind: 'group' },
@@ -108,10 +109,12 @@ describe('buildReviewInput', () => {
   });
 
   it('a folder DEMOTED by unselecting a child shows as a removed unit in the diff', () => {
-    // Same edit seen from a re-entry: the folder committed as a unit BEFORE;
-    // this session unselected one child, so the commit will now emit chats
-    // instead — the review says the unit went away even though the raw mark
-    // is still set (the reducer keeps it; projection demotes).
+    /**
+     * Same edit seen from a re-entry: the folder committed as a unit BEFORE; this session
+     * unselected one child, so the commit will now emit chats instead — the review says the
+     * unit went away even though the raw mark is still set (the reducer keeps it; projection
+     * demotes).
+     */
     const tree = buildPickerTree(
       [
         { id: '9', title: 'Ops', kind: 'group' },

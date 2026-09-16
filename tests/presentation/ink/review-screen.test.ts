@@ -31,7 +31,7 @@ const ESC = '';
 const ENTER = '\r';
 const BACKSPACE = '';
 
-/** Let Ink flush its keypress queue + React commit the resulting state. */
+// Let Ink flush its keypress queue + React commit the resulting state.
 const tick = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 25));
 
 const readOnlyInput: ReviewInput = {
@@ -72,7 +72,7 @@ const mount = (
     } satisfies ReviewScreenViewProps),
   );
 
-/** Mount + wait one tick so Ink has attached its stdin listener before input. */
+// Mount + wait one tick so Ink has attached its stdin listener before input.
 const mountReady = async (
   input: ReviewInput,
   onDecide: (d: ReviewDecision) => void,

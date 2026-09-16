@@ -1,17 +1,8 @@
 /**
- * Regressions for the TL runtime-null quirk: GramJS *declares* optional TL
- * fields as `T | undefined`, but its generated `fromReader` materializes an
- * ABSENT flag field as `null` (tl/api.js: `else { args[argName] = null; }`).
- * Locally-constructed Api objects carry `undefined`, so these tests impose
- * `null` explicitly to mirror the WIRE shape — the one production sees.
- *
- * Bites pinned here:
- *  - `usernameOf`: `null.length` threw and aborted listing ALL dialogs.
- *  - `mapMessage`: null `fromId` on channel posts -> `utils.getPeerId(null)`
- *    -> "Cannot use 'in' operator to search for 'className' in null" (hung
- *    get_messages); null `fwdFrom` mislabeled every post `forwarded: true`;
- *    null `editDate` stamped unedited messages with a 1970 `editedDateIso`;
- *    null `media` attached a phantom media DTO to text messages.
+ * Regressions for the TL runtime-null quirk: GramJS declares optional TL fields as `T
+ * undefined`, but its generated reader materializes an absent flag as `null`.
+ * Locally-constructed Api objects carry `undefined`, so these tests impose `null` explicitly to
+ * mirror the wire shape production sees.
  */
 import { describe, it, expect } from 'vitest';
 import { Api } from 'telegram';
@@ -26,9 +17,11 @@ import {
 import { UnicodeSanitizer } from '../../src/infrastructure/sanitize/unicode-sanitizer.js';
 import { UntrustedTextKind } from '../../src/domain/index.js';
 
-// A minimal object carrying Api.User's prototype (so `instanceof Api.User` holds)
-// with just the field under test — no real id / big-integer needed. GramJS hands
-// back `null` (not undefined) for a missing username, which is the crash case.
+/**
+ * A minimal object carrying Api.User's prototype (so `instanceof Api.User` holds) with just the
+ * field under test — no real id / big-integer needed. GramJS hands back `null` (not undefined)
+ * for a missing username, which is the crash case.
+ */
 const userWith = (username: string | null): Api.User => {
   const user = Object.create(Api.User.prototype) as Api.User;
   (user as unknown as { username: string | null }).username = username;
@@ -95,7 +88,7 @@ const deps = {
  */
 const asLong = (n: number): Api.long => n as unknown as Api.long;
 
-/** Impose the wire deserializer's shape: absent optional TL fields are null. */
+// Impose the wire deserializer's shape: absent optional TL fields are null.
 const asWire = (
   msg: Api.Message,
   nullFields: readonly string[],
@@ -163,7 +156,7 @@ describe('mapMediaInfo — wire-shaped messages', () => {
   });
 });
 
-/** A bare message carrying only the `reactions` field under test. */
+// A bare message carrying only the `reactions` field under test.
 const withReactions = (reactions: unknown): Api.Message => {
   const msg = Object.create(Api.Message.prototype) as Api.Message;
   (msg as unknown as { reactions: unknown }).reactions = reactions;

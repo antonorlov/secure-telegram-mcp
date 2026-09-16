@@ -1,28 +1,8 @@
 /**
- * ToolRegistry — direct contract tests for the presentation spine's STATIC-menu
- * model: the menu is DISCOVERY, execution is the sole ACL. Unlike the catalogue
- * integration test (which wires the REAL v1 tools), this suite drives the
- * registry with MINIMAL fake `ToolDefinition`s so it pins the registry's own
- * guarantees in isolation (SoC): the full non-forbidden set is always listed,
- * malformed input is rejected at the protocol boundary, annotations derive from
- * the verb, and the forbidden-name guard fails closed (#2).
- *
- * The registry is exercised through a REAL MCP client<->server pair over the
- * SDK's in-memory transport, so the assertions are made against the actual
- * protocol surface a model would see — not an internal shortcut.
- *
- * Security invariants asserted concretely:
- *  - STATIC menu, execution-is-the-ACL: a read-only (or no-verb, or
- *    kill-switched) endpoint still LISTS the full non-forbidden set — listing
- *    grants nothing; an out-of-verb call is protocol-callable yet DENIES at
- *    execution (the use-case engine's per-chat verb+scope+kill decision).
- *  - SYNTACTIC validation chokepoint: malformed args yield JSON-RPC -32602
- *    (InvalidParams) and the handler is NEVER reached.
- *  - declared outputSchema is enforced on success results (presenter drift
- *    fails loudly, F9).
- *  - annotations are PURE output metadata derived from the verb (readOnly /
- *    destructive / idempotent hints) — never a control-flow input.
- *  - #2 forbidden raw/scope-mutation tool names are refused at registration.
+ * Direct contract tests for the presentation spine's static-menu model: the menu is DISCOVERY,
+ * execution is the sole ACL. Unlike the catalogue integration test, this suite drives the
+ * registry with minimal fake tool definitions, so it pins the registry's own guarantees in
+ * isolation.
  */
 import { afterEach, describe, it, expect } from 'vitest';
 import { z } from 'zod';
@@ -53,15 +33,15 @@ import {
   SpyScopedClient,
 } from '../application/_support.js';
 
-// ---------------------------------------------------------------------------
-// Minimal fake tool definitions (one per verb under test). The registry only
-// reads `name` / `requiredVerb` / `inputSchema` / `annotations`; the handler is
-// invoked solely to prove the validation boundary runs BEFORE it.
-// ---------------------------------------------------------------------------
-
+/**
+ * --------------------------------------------------------------------------- Minimal fake tool
+ * definitions (one per verb under test). The registry only reads `name` / `requiredVerb` /
+ * `inputSchema` / `annotations`; the handler is invoked solely to prove the validation boundary
+ * runs BEFORE it. ---------------------------------------------------------------------------
+ */
 interface FakeTool<TShape extends z.ZodRawShape> {
   readonly definition: ToolDefinition<TShape>;
-  /** How many times the handler actually ran (validation passed). */
+  // How many times the handler actually ran (validation passed).
   calls: number;
 }
 
@@ -104,10 +84,6 @@ const markReadTool = (): FakeTool<Record<string, never>> =>
   makeTool('fake_mark_read', PermissionVerb.MarkRead, {});
 const forwardTool = (): FakeTool<Record<string, never>> =>
   makeTool('fake_forward', PermissionVerb.Forward, {});
-
-// ---------------------------------------------------------------------------
-// Live MCP client<->server harness over the in-memory transport.
-// ---------------------------------------------------------------------------
 
 interface Conn {
   readonly client: Client;
@@ -177,7 +153,7 @@ interface ToolResultView {
 
 const viewResult = (result: unknown): ToolResultView => result as ToolResultView;
 
-/** First text content block of a tool result (where this SDK embeds error codes). */
+// First text content block of a tool result (where this SDK embeds error codes).
 const firstText = (result: ToolResultView): string => {
   for (const block of result.content ?? []) {
     if (block.type === 'text' && typeof block.text === 'string') {
@@ -187,12 +163,13 @@ const firstText = (result: ToolResultView): string => {
   return '';
 };
 
-// ---------------------------------------------------------------------------
-// STATIC full menu — the menu is DISCOVERY; EXECUTION is the ACL. Every endpoint
-// (even read-only-everywhere, even kill-switched) lists the FULL non-forbidden
-// tool set; an out-of-verb/kill-switched tool is LISTED but DENIES at execution.
-// ---------------------------------------------------------------------------
-
+/**
+ * --------------------------------------------------------------------------- STATIC full menu
+ * — the menu is DISCOVERY; EXECUTION is the ACL. Every endpoint (even read-only-everywhere,
+ * even kill-switched) lists the FULL non-forbidden tool set; an out-of-verb/kill-switched tool
+ * is LISTED but DENIES at execution.
+ * ---------------------------------------------------------------------------
+ */
 describe('ToolRegistry — STATIC full menu, execution is the sole ACL', () => {
   const allDefs = (): readonly AnyToolDefinition[] => [
     readTool().definition,
@@ -229,10 +206,12 @@ describe('ToolRegistry — STATIC full menu, execution is the sole ACL', () => {
   });
 
   it('a listed-but-out-of-verb write tool is genuinely CALLABLE at the protocol level (execution ACL decides)', async () => {
-    // A read-only-everywhere endpoint: the fake handler here always Ok's, but the
-    // tool is REACHABLE (not -32602 not-found). The REAL execution ACL lives in
-    // the use-case/guarded-client (covered by the invariant + use-case suites);
-    // here we prove the menu no longer hides the tool — it is present and invokable.
+    /**
+     * A read-only-everywhere endpoint: the fake handler here always Ok's, but the tool is
+     * REACHABLE (not -32602 not-found). The REAL execution ACL lives in the
+     * use-case/guarded-client (covered by the invariant + use-case suites); here we prove the
+     * menu no longer hides the tool — it is present and invokable.
+     */
     const conn = await connect({
       verbs: [PermissionVerb.Read],
       definitions: allDefs(),
@@ -257,10 +236,6 @@ describe('ToolRegistry — STATIC full menu, execution is the sole ACL', () => {
     expect([...names].sort()).toEqual([...ALL_NAMES].sort());
   });
 });
-
-// ---------------------------------------------------------------------------
-// SYNTACTIC validation chokepoint — JSON-RPC -32602 on malformed args.
-// ---------------------------------------------------------------------------
 
 describe('ToolRegistry — malformed input yields -32602 (InvalidParams)', () => {
   it('rejects a type-mismatched argument with -32602 and never reaches the handler', async () => {
@@ -321,10 +296,11 @@ describe('ToolRegistry — malformed input yields -32602 (InvalidParams)', () =>
   });
 });
 
-// ---------------------------------------------------------------------------
-// outputSchema (F9) — declared per tool, enforced by the SDK on success results.
-// ---------------------------------------------------------------------------
-
+/**
+ * --------------------------------------------------------------------------- outputSchema (F9)
+ * — declared per tool, enforced by the SDK on success results.
+ * ---------------------------------------------------------------------------
+ */
 describe('ToolRegistry — declared outputSchema is enforced on success results (F9)', () => {
   it('REJECTS a result that violates the declared outputSchema (presenter drift fails loudly)', async () => {
     const drifting = makeTool('fake_drift', PermissionVerb.Read, {});
@@ -351,10 +327,11 @@ describe('ToolRegistry — declared outputSchema is enforced on success results 
   });
 });
 
-// ---------------------------------------------------------------------------
-// Annotations derived from the verb (pure metadata, never branched on).
-// ---------------------------------------------------------------------------
-
+/**
+ * --------------------------------------------------------------------------- Annotations
+ * derived from the verb (pure metadata, never branched on).
+ * ---------------------------------------------------------------------------
+ */
 describe('annotationsForVerb — derived purely from the verb', () => {
   it('marks read verbs read-only and non-destructive', () => {
     expect(annotationsForVerb(PermissionVerb.Read)).toEqual({

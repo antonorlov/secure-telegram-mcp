@@ -1,9 +1,5 @@
-/**
- * ClassifiedLine — one notice/help body line rendered per `classifyNoticeLine`:
- * payloads bold, commands accent with dimmed comments, asides dim, URLs accent +
- * underline, prose plain. Shared by NoticeScreen bodies and PromptFrame help so the
- * two surfaces speak one convention.
- */
+// One notice or help body line rendered per `classifyNoticeLine`, shared by NoticeScreen bodies
+// and PromptFrame help so the two surfaces cannot drift apart.
 import type { FC } from 'react';
 import { Text } from 'ink';
 

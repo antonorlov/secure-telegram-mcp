@@ -23,14 +23,14 @@ import type { Clock } from '../ports/clock.js';
 import type { AuditRecord } from '../ports/audit-log.js';
 import { AppErrorCode, appError, type AppError } from '../errors.js';
 
-/** The deny branch of an AclDecision. */
+// The deny branch of an AclDecision.
 export type AclDenial = Extract<AclDecision, { readonly allowed: false }>;
 
-/** Primary canonical-id string of a peer for audit/HITL, when known up-front. */
+// Primary canonical-id string of a peer for audit/HITL, when known up-front.
 export const primaryKeyOf = (peer?: PeerRef): string | undefined =>
   peer?.kind === 'id' ? peer.id.toKey() : undefined;
 
-/** The ACL-relevant slice of an execution context (what `evaluate()` consumes). */
+// The ACL-relevant slice of an execution context (what `evaluate()` consumes).
 export interface AclContextFields {
   readonly endpoint: Endpoint;
   readonly resolvedScope: ResolvedScope;
@@ -59,7 +59,7 @@ const evalOne = (
     ...(target !== undefined ? { target } : {}),
   });
 
-/** First denied target; `target` is absent for a scope-wide no-target eval. */
+// First denied target; `target` is absent for a scope-wide no-target eval.
 export interface AclFailure {
   readonly target?: ChatId;
   readonly decision: AclDenial;
@@ -136,13 +136,13 @@ export const permitsVerbForAnyReachableTarget = (
   );
 };
 
-/** Map an ACL denial to the application-layer ACL_DENIED error (carrying cause). */
+// Map an ACL denial to the application-layer ACL_DENIED error (carrying cause).
 export const aclDeniedError = (denial: AclDenial): AppError =>
   appError(AppErrorCode.AclDenied, denial.message, {
     cause: domainError(denial.reason, denial.message),
   });
 
-/** Outcome + optional structured detail for an audit record (no untrusted prose). */
+// Outcome + optional structured detail for an audit record (no untrusted prose).
 export interface AuditDetail {
   readonly outcome: 'allow' | 'deny';
   readonly targetChatId?: string;
@@ -150,7 +150,7 @@ export interface AuditDetail {
   readonly idempotencyKey?: string;
 }
 
-/** Build an immutable AuditRecord, honouring exactOptionalPropertyTypes. */
+// Build an immutable AuditRecord, honouring exactOptionalPropertyTypes.
 export const buildAuditRecord = (
   clock: Clock,
   endpointName: EndpointNameValue,

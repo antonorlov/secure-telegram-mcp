@@ -26,9 +26,9 @@ import type {
 import { PromptFrame } from './PromptFrame.js';
 
 export interface LinePromptProps {
-  /** `PasswordPromptRequest` is a structural subset (no `defaultValue`), so both fit. */
+  // `PasswordPromptRequest` is a structural subset (no `defaultValue`), so both fit.
   readonly request: TextPromptRequest | PasswordPromptRequest;
-  /** Mask every typed character and never pre-fill (the secret variant). */
+  // Mask every typed character and never pre-fill (the secret variant).
   readonly masked: boolean;
   readonly onDone: (result: PromptResult<string>) => void;
 }

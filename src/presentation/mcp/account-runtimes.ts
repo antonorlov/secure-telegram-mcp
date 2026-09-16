@@ -1,4 +1,4 @@
-/** One independently-retired connection owner per Telegram session reference. */
+// One independently-retired connection owner per Telegram session reference.
 export class AccountRuntimes<TRuntime> {
   private readonly current = new Map<string, Promise<TRuntime>>();
   private readonly retired = new Map<string, Promise<void>>();
@@ -28,10 +28,8 @@ export class AccountRuntimes<TRuntime> {
     return building;
   }
 
-  /**
-   * Hold the session-ref barrier across an account mutation. New builds wait for
-   * old ownership disposal and the complete mutation.
-   */
+  // Hold the session-ref barrier across an account mutation. New builds wait for old ownership
+  // disposal and the complete mutation.
   public withRetired<T>(
     sessionRef: string,
     work: () => Promise<T>,
@@ -61,7 +59,7 @@ export class AccountRuntimes<TRuntime> {
     return running;
   }
 
-  /** Shutdown barrier: no account runtime survives its resolution. */
+  // Shutdown barrier: no account runtime survives its resolution.
   public async retireAll(): Promise<void> {
     const refs = [...this.current.keys()];
     await Promise.all(

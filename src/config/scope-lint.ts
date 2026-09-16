@@ -1,12 +1,7 @@
 /**
- * Scope-lint — STATIC checks over the validated config, at load time before any
- * network access. Two levels:
- *  - 'error' makes the config repository FAIL-CLOSED (refuse to serve).
- *  - 'warn'  is surfaced to the operator but does not block.
- *
- * Live membership is resolved at bind time; if the entire declared scope then
- * resolves empty, `ResolvedScope.create` fails closed. This module stays pure
- * and offline rather than pretending to inspect Telegram state.
+ * Static checks over the validated config at load time, before any network access. 'error'
+ * makes the config repository fail closed; 'warn' only surfaces to the operator. Live
+ * membership is resolved later, at bind time.
  */
 import type { ValidatedConfig } from './schema.js';
 
@@ -24,8 +19,8 @@ export const lintConfig = (cfg: ValidatedConfig): readonly LintFinding[] => {
   for (const ep of cfg.endpoints) {
     const declaredEmpty =
       ep.scope.chats.length === 0 && ep.scope.folders.length === 0;
-    // FAIL-CLOSED: an empty declared scope resolves to an empty (or careless
-    // allow-all) client. Reject it up front.
+    // FAIL-CLOSED: an empty declared scope would resolve to an empty or careless allow-all
+    // client.
     if (declaredEmpty) {
       findings.push({
         level: 'error',
@@ -35,8 +30,7 @@ export const lintConfig = (cfg: ValidatedConfig): readonly LintFinding[] => {
       });
     }
 
-    // Not flagged: write-without-confirmation. HITL is opt-in and defaults OFF
-    // by design, so a write endpoint with confirmation off is the normal case.
+    // Write-without-confirmation is deliberately not flagged: HITL is opt-in and defaults off.
   }
 
   return Object.freeze(findings);

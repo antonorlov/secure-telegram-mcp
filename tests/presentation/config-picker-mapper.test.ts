@@ -26,9 +26,11 @@ const idRef = (raw: string): PeerRef =>
 const userRef = (name: string): PeerRef => ({ kind: 'username', username: name });
 const ME: PeerRef = { kind: 'me' };
 
-// Mirrors the real picker bridge: every enumerated chat carries the canonical
-// numeric-id ref; a public chat ADDITIONALLY exposes its username so hand-authored
-// '@username' scope entries can land on it.
+/**
+ * Mirrors the real picker bridge: every enumerated chat carries the canonical numeric-id ref; a
+ * public chat ADDITIONALLY exposes its username so hand-authored '@username' scope entries can
+ * land on it.
+ */
 const enumeration: PickerEnumeration = {
   chats: [
     { chatKey: '1', ref: idRef('1'), title: 'Alpha' },
@@ -45,11 +47,11 @@ const scope = (over: Partial<ValidatedScope> = {}): ValidatedScope => ({
   ...over,
 });
 
-/** The full read tier a read-bit expands to (passive read + media egress). */
+// The full read tier a read-bit expands to (passive read + media egress).
 const R_TIER = ['read', 'read_media'];
-/** The full write tier a write-bit expands to ("w means write"). */
+// The full write tier a write-bit expands to ("w means write").
 const W_TIER = ['send', 'draft', 'delete', 'mark_read', 'forward', 'react'];
-/** A read+write member expands to both tiers. */
+// A read+write member expands to both tiers.
 const RW_TIER = [...R_TIER, ...W_TIER];
 
 describe('bit <-> verb translation (the 2-bit projection SSOT)', () => {
@@ -198,9 +200,11 @@ describe('project (inverse of hydrate)', () => {
   });
 
   it('COLLAPSE: a hand-stripped [read, mark_read] chat collapses to the full tiers on a picker round-trip', () => {
-    // A hand-authored chat with a narrow write set (mark_read only) is detected as
-    // read+write by tier, so a picker round-trip re-expands both tiers — the
-    // hand-stripping is intentionally lost (the 2-bit model's documented contract).
+    /**
+     * A hand-authored chat with a narrow write set (mark_read only) is detected as read+write
+     * by tier, so a picker round-trip re-expands both tiers — the hand-stripping is
+     * intentionally lost (the 2-bit model's documented contract).
+     */
     const model = hydratePickerSelection({
       groupVerbs: ['read'],
       scope: scope({
@@ -230,11 +234,12 @@ describe('project (inverse of hydrate)', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Folder-as-scope-unit round-trip (folders[] <-> folderScope) — the picker's
-// single selection surface now carries FOLDERS too, projected losslessly.
-// ---------------------------------------------------------------------------
-
+/**
+ * ---------------------------------------------------------------------------
+ * Folder-as-scope-unit round-trip (folders[] <-> folderScope) — the picker's single selection
+ * surface now carries FOLDERS too, projected losslessly.
+ * ---------------------------------------------------------------------------
+ */
 const withFolders: PickerEnumeration = {
   chats: enumeration.chats,
   folders: [{ id: 5, title: 'Work', childChatKeys: ['1', '2'] }],
@@ -409,12 +414,13 @@ describe('unmatchedRefs (stale references surfaced, never silently dropped)', ()
   });
 });
 
-// ---------------------------------------------------------------------------
-// Rule-based (category-flag) folder members — the runtime resolver tracks only
-// EXPLICIT (pinned ∪ included) members, so a `folders[]` unit covers those and
-// rule matches must SNAPSHOT as individual chats (never a phantom folder unit
-// that resolves to zero peers at runtime).
-// ---------------------------------------------------------------------------
+/**
+ * --------------------------------------------------------------------------- Rule-based
+ * (category-flag) folder members — the runtime resolver tracks only EXPLICIT (pinned ∪
+ * included) members, so a `folders[]` unit covers those and rule matches must SNAPSHOT as
+ * individual chats (never a phantom folder unit that resolves to zero peers at runtime).
+ * ---------------------------------------------------------------------------
+ */
 
 // Folder 5: chat '1' is explicit (pinned/included); chat '2' is rule-matched only.
 const mixedFolder: PickerEnumeration = {

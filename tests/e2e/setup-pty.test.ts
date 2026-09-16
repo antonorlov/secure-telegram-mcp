@@ -1,24 +1,8 @@
 /**
- * PTY SMOKE-TEST GATE — the regression this whole refactor exists to kill.
- *
- * The `setup` wizard is INTERACTIVE and, before the single-Ink-app rewrite, mixed
- * an Ink runtime with a readline `Console`. Both bound `process.stdin` in raw
- * mode; when an Ink screen unmounted, its raw-mode teardown left readline dead, so
- * the NEXT prompt hit EOF and the process EXITED SILENTLY (code 0). Symptom on a
- * real terminal: pick an item in the main menu -> "Session name to manage" prints
- * -> the app vanishes. Unit tests NEVER caught it because ink-testing-library uses
- * a FAKE stdin and the readline prompts were never driven on a real TTY.
- *
- * So this test drives the BUILT binary through a REAL pseudo-terminal (node-pty)
- * and asserts the fix STRUCTURALLY: after selecting a menu item the next screen
- * renders AND the process is still alive a beat later (the exact assertion that
- * failed against the readline version — verified: a silent-exit stub makes it go
- * red). It is headless (no human, no real terminal needed) and part of the
- * permanent suite: `beforeAll` compiles `dist` so it always runs against fresh
- * output; the `test:pty` npm script builds first too.
- *
- * PTY DRIVER: node-pty (its native addon builds and loads in this sandbox). The
- * `/usr/bin/expect` fallback is available but NOT needed.
+ * PTY smoke-test gate — the regression this refactor exists to kill. Setup once mixed an Ink
+ * runtime with a readline console; both bound `process.stdin` in raw mode, so an unmounting Ink
+ * screen left readline dead, the next prompt hit EOF, and the process exited silently with code
+ * 0.
  */
 import { execFileSync } from 'node:child_process';
 import { spawnSync } from 'node:child_process';
@@ -77,7 +61,7 @@ const ptyEnv = (sessionDir: string): Record<string, string | undefined> => {
   };
 };
 
-/** A live PTY-driven `setup` run: accumulates output, tracks exit, drives keys. */
+// A live PTY-driven `setup` run: accumulates output, tracks exit, drives keys.
 interface PtyRun {
   readonly term: IPty;
   output(): string;
@@ -112,7 +96,7 @@ const processIsAlive = (pid: number): boolean => {
   }
 };
 
-/** Stop the detached daemon that setup auto-started for this throwaway store. */
+// Stop the detached daemon that setup auto-started for this throwaway store.
 const stopTestDaemon = async (sessionDir: string): Promise<void> => {
   const ownerPath = join(sessionDir, '.daemon-running', 'owner');
   if (!existsSync(ownerPath)) return;
@@ -145,7 +129,7 @@ const stopTestDaemon = async (sessionDir: string): Promise<void> => {
   }
 };
 
-/** Spawn `node dist/.../main.js <args...>` inside an 80x30 xterm PTY. */
+// Spawn `node dist/.../main.js <args...>` inside an 80x30 xterm PTY.
 const spawnSetup = (args: readonly string[], sessionDir: string): PtyRun => {
   const term = spawn(process.execPath, [BIN, ...args], {
     name: 'xterm-256color',
@@ -239,9 +223,11 @@ describe('setup wizard over a real PTY (raw-mode-handoff regression)', () => {
       // ASSERTION 1 (the exact regression): the NEXT screen — the api_id text
       // prompt — renders...
       expect(await run.waitForText('api_id')).toBe(true);
-      // ...and the process is STILL ALIVE a beat later. Against the old readline
-      // version the prompt printed and the process then exited 0 — this is the
-      // line that catches the silent-exit bug.
+      /**
+       * ...and the process is STILL ALIVE a beat later. Against the old readline version the
+       * prompt printed and the process then exited 0 — this is the line that catches the
+       * silent-exit bug.
+       */
       await delay(800);
       expect(run.exited()).toBe(false);
 

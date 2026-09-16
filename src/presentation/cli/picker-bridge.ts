@@ -1,15 +1,10 @@
 /**
- * Picker bridge — the pure adapter from the daemon account snapshot +
- * folder membership) to the picker's framework-free model: the flattened tree `Row[]` the
- * PickerScreen renders and the `PickerEnumeration` the config<->picker mapper projects
- * through. Framework-free (no Ink/React/node:*): string/data in, picker model out.
- *
- * Folder -> chat hierarchy. When folder membership is supplied, each folder is a
- * collapsed-by-default tri-state parent row, followed by its member chats nested at depth 1.
- * A chat that lives in N folders appears under each of them, but selection stays one
- * id-keyed entry — the same `chatKey` under distinct `RowId`s — so marking it once marks it
- * everywhere and its `folderTitles` drive the "(also in: …)" note. Chats in no folder (and
- * the synthetic self row) sit flat at depth 0.
+ * Pure adapter from the account snapshot and folder membership to the picker's framework-free
+ * model: the flattened `Row[]` the screen renders and the `PickerEnumeration` the config mapper
+ * projects through. No Ink, React or node:* here.
+ * A chat that lives in N folders appears under each of them, but selection stays one id-keyed
+ * entry — the same `chatKey` under distinct `RowId`s — so marking it once marks it everywhere,
+ * and its `folderTitles` drive the "(also in: …)" note.
  */
 import { ChatId, PeerRefFactory, type PeerRef } from '../../domain/index.js';
 import { isErr } from '../../shared/index.js';
@@ -30,10 +25,9 @@ import type {
   PickerFolderSource,
 } from './picker/index.js';
 
-/** The synthetic self chat ('me' / Saved Messages), always offered at the top. */
+// The synthetic self chat ('me' / Saved Messages), always offered at the top.
 const SELF_KEY: ChatKey = 'me';
 
-/** Map the coarse setup `ChatKind` onto the picker's narrower kind vocabulary. */
 const toPickerKind = (kind: AccountChatDto['kind']): PickerChatKind => {
   switch (kind) {
     case 'channel':
@@ -47,21 +41,17 @@ const toPickerKind = (kind: AccountChatDto['kind']): PickerChatKind => {
   }
 };
 
-/**
- * Canonical config ref for an enumerated chat: its numeric peer id as a domain
- * `PeerRef`. `undefined` drops a malformed live id (cannot round-trip through
- * config) — unreachable for a real enumeration, which emits canonical decimals.
- */
+// `undefined` drops a malformed live id, which could not round-trip through config; a real
+// enumeration always emits canonical decimals.
 const chatRef = (chat: AccountChatDto): PeerRef | undefined => {
   const id = ChatId.fromString(chat.id);
   return isErr(id) ? undefined : PeerRefFactory.fromId(id.value);
 };
 
 /**
- * Does a chat match a folder's rule flags? Faithful to the official clients (TDLib
- * `need_dialog` / Desktop `ChatFilter::contains` / Web `isChatInFolder`), evaluated only for
- * chats not explicitly included/excluded (those are handled by the caller). Order:
- * status-excludes (archived / read / muted-without-mention) then the OR-ed type flags.
+ * Faithful to the official clients (TDLib `need_dialog`, Desktop `ChatFilter::contains`, Web
+ * `isChatInFolder`), and evaluated only for chats that are not explicitly included or excluded.
+ * Order: status excludes, then the OR-ed type flags.
  */
 export const chatMatchesFolderFlags = (
   chat: AccountChatDto,
@@ -94,7 +84,6 @@ export interface PickerTree {
   readonly enumeration: PickerEnumeration;
 }
 
-/** The per-chat facts the tree/enumeration are projected from, keyed by ChatKey. */
 interface ChatInfo {
   readonly title: string;
   readonly kind: PickerChatKind;
@@ -102,12 +91,8 @@ interface ChatInfo {
   readonly ref: PeerRef;
 }
 
-/**
- * Build the folder->chat picker tree + enumeration from the enumerated dialogs and
- * (optionally) their folder membership. The self ('me') chat is prepended so the operator
- * can scope their own Saved Messages; it carries the `{ kind: 'me' }` ref so the projection
- * round-trips it as `me`. With no folders supplied every chat is flat at depth 0.
- */
+// The self ('me') chat is prepended with a `{ kind: 'me' }` ref so the projection round-trips
+// it as `me`. With no folders supplied, every chat is flat at depth 0.
 export const buildPickerTree = (
   chats: readonly AccountChatDto[],
   folders: readonly AccountFolderDto[] = [],
@@ -130,9 +115,8 @@ export const buildPickerTree = (
     });
   }
 
-  // Telegram's native dialog order (getDialogs = pinned, then last activity) is the
-  // incoming `chats` order; stamp each chat's rank so the display sort can use it as
-  // the last-activity tiebreak. `me` leads (-1).
+  // Telegram's native dialog order — pinned, then last activity — is the incoming `chats`
+  // order; stamp each rank so the display sort can use it as the last-activity tiebreak.
   const rankByKey = new Map<ChatKey, number>();
   rankByKey.set(SELF_KEY, -1);
   chats.forEach((chat, i) => {
@@ -155,7 +139,7 @@ export const buildPickerTree = (
   const folderSources: PickerFolderSource[] = [];
   const emittedSourceKeys = new Set<ChatKey>();
 
-  /** One id-keyed enumeration source per real chat (deduped across folders). */
+  // One id-keyed enumeration source per real chat (deduped across folders).
   const emitSource = (key: ChatKey, info: ChatInfo): void => {
     if (emittedSourceKeys.has(key)) return;
     emittedSourceKeys.add(key);
@@ -167,7 +151,6 @@ export const buildPickerTree = (
     });
   };
 
-  /** A chat leaf row for `key` at `depth`; skips keys with no enumerated chat. */
   const emitChatRow = (rowId: string, key: ChatKey, depth: number): void => {
     const info = chatByKey.get(key);
     if (info === undefined) return;
@@ -193,10 +176,11 @@ export const buildPickerTree = (
   const inAnyFolder = new Set<ChatKey>();
   for (const folder of folders) {
     const childChatKeys: ChatKey[] = [];
-    // EXPLICIT members (pinned ∪ included) are the ONLY ones the runtime folder
-    // resolver tracks, so only these commit as part of a `folders[]` unit ref;
-    // rule-matched members snapshot as individual chats (the resolver ignores
-    // flag membership — a unit ref over them would resolve to zero peers).
+    /**
+     * EXPLICIT members (pinned ∪ included) are the only ones the runtime folder resolver
+     * tracks, so only they commit as part of a `folders[]` unit ref. Rule-matched members
+     * snapshot as individual chats, since a unit ref over them would resolve to zero peers.
+     */
     const explicitChatKeys: ChatKey[] = [];
     const excluded = new Set<ChatKey>(folder.excludeChatIds ?? []);
     const addKey = (key: ChatKey, explicit: boolean): void => {

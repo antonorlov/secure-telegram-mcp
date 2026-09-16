@@ -1,13 +1,7 @@
 /**
- * Config schema — the single authoritative description of the ACL: endpoints,
- * their scope (chats + FOLDERS), granted verbs, and HITL policy. Validates the
- * on-disk file; the interactive `setup` generator writes this same shape.
- *
- * We accept ergonomic string shorthands ('me', '@user', '-100…') and folder
- * id/title, normalising through the DOMAIN factories straight to `PeerRef` /
- * `FolderRef` (one in-memory form, validated once). Endpoint binding later uses
- * a temporary gateway-owned resolver to expand only those declared refs before
- * constructing the scope-bound tool client.
+ * The single authoritative description of the ACL. Ergonomic shorthands ('me', '@user',
+ * '-100…', folder id or title) normalise through the DOMAIN factories straight to `PeerRef` /
+ * `FolderRef`, so there is one in-memory form, validated once.
  */
 import { z } from 'zod';
 import {
@@ -28,15 +22,11 @@ const slug = z
   .string()
   .regex(SLUG_RE, 'must be a lowercase slug (1–64 chars)');
 
-// ---- chat reference ----
-
 /**
- * Normalise a chat-ref shorthand ('me' | '@user' | numeric id) into a domain
- * `PeerRef` via the domain factories (their invariants — id bounds, username
- * shape — are the ONLY validation; nothing is re-checked later). Both
- * `scope.chats` and the `scope.chatOverrides` keys normalise through this ONE
- * path so an override key and a scope chat resolve to the SAME ref — otherwise
- * chat-override > group-default precedence could never line up by identity.
+ * Both `scope.chats` and the `scope.chatOverrides` keys normalise through this ONE path, so an
+ * override key and a scope chat resolve to the same ref — otherwise chat-override >
+ * group-default precedence could never line up by identity. The domain factories' invariants
+ * are the only validation.
  */
 export const parseChatRef = (raw: string): Result<PeerRef, string> => {
   const trimmed = raw.trim();
@@ -59,12 +49,7 @@ export const parseChatRef = (raw: string): Result<PeerRef, string> => {
   );
 };
 
-/**
- * Render a `PeerRef` back to its ergonomic on-disk shorthand — the single
- * inverse of {@link parseChatRef}, so the round-trip pair lives in one module
- * and a shorthand-grammar change is made in exactly one place. Ids re-emit in
- * `ChatId`'s canonical decimal form (lossless by identity).
- */
+// The single inverse of `parseChatRef`; ids re-emit in `ChatId`'s canonical decimal form.
 export const chatEntryToRef = (entry: PeerRef): string => {
   switch (entry.kind) {
     case 'me':
@@ -89,9 +74,6 @@ const chatEntrySchema = z
     return parsed.value;
   });
 
-// ---- folder reference ----
-
-/** The on-disk value of a folder ref (numeric id or title) — the serialization inverse. */
 export const folderEntryValue = (entry: FolderRef): number | string =>
   entry.kind === 'id' ? entry.id : entry.title;
 
@@ -109,24 +91,15 @@ const folderEntrySchema = z
     return parsed.value;
   });
 
-// ---- permission verb ----
-
 const permissionVerbSchema: z.ZodType<PermissionVerb> = z.custom<PermissionVerb>(
   isPermissionVerb,
   { message: 'Unknown permission verb' },
 );
 
-// ---- per-chat verb override ----
-
 /**
- * On disk a per-chat verb override is the ergonomic record
- * `{ "<chatRef>": ["read", ...] }`; it normalises to the domain's
- * `DeclaredChatVerbOverride` (the same `PeerRef` language as `scope.chats`)
- * whose verbs REPLACE the group default for that chat.
- *
- * SECURITY: this only NARROWS or RE-SHAPES access WITHIN the endpoint's
- * already-scoped allow-list — the override chat must still be in scope to matter,
- * and an unknown verb is rejected by the same verb check.
+ * An override's verbs REPLACE the group default for that chat. SECURITY: this only narrows or
+ * re-shapes access WITHIN the endpoint's already-scoped allow-list — the chat must still be in
+ * scope to matter.
  */
 const chatOverridesSchema = z
   .record(z.string(), z.array(permissionVerbSchema).nonempty('an override must grant at least one verb'))
@@ -147,18 +120,13 @@ const chatOverridesSchema = z
     return out;
   });
 
-// ---- scope ----
-
 const scopeSchema = z
   .object({
     chats: z.array(chatEntrySchema).default([]),
     folders: z.array(folderEntrySchema).default([]),
-    /** Optional; an absent field maps to an empty override set (group-default). */
     chatOverrides: chatOverridesSchema,
   })
   .strict();
-
-// ---- hitl ----
 
 const hitlSchema = z
   .object({
@@ -167,27 +135,21 @@ const hitlSchema = z
   .strict()
   .default({ confirmWrites: DEFAULT_CONFIRM_WRITES });
 
-// ---- endpoint ----
-
 const endpointSchema = z
   .object({
-    /** Unique endpoint name (used in tool / server ids). */
     name: slug,
-    /** Reference to the encrypted session this endpoint uses. */
     session: slug,
     scope: scopeSchema,
     verbs: z
       .array(permissionVerbSchema)
       .nonempty('an endpoint must grant at least one verb'),
     hitl: hitlSchema,
-    /** SHA-256 of the endpoint API key (REQUIRED authorization gate — never key material). */
+    // SHA-256 of the endpoint API key — authorization data, never key material.
     tokenHash: z
       .string()
       .regex(/^[0-9a-f]{32}\$[0-9a-f]{64}$/, 'tokenHash must be a salted digest (<salt>$<hash>)'),
   })
   .strict();
-
-// ---- kill switch ----
 
 const killSwitchSchema = z
   .object({
@@ -196,14 +158,10 @@ const killSwitchSchema = z
   .strict()
   .default({ disabledVerbs: [] });
 
-// ---- download egress cap (global, operator-configurable) ----
-
 /**
- * Global DOWNLOAD egress cap (bytes) for `download_media`. A resource guard for the
- * operator's own disk — NOT a security boundary (unlike the fixed output/context byte
- * caps) — so it is operator-configurable. Positive integer with a generous sanity
- * ceiling (~4 GiB, above Telegram's own per-file limit). Absent -> the runtime default
- * (50 MiB). One GLOBAL knob; per-endpoint granularity is deliberately not offered.
+ * A resource guard for the operator's own disk, not a security boundary, so it stays
+ * operator-configurable. Positive integer with a ~4 GiB sanity ceiling; absent means the 50 MiB
+ * runtime default. One global knob — per-endpoint granularity is deliberately not offered.
  */
 const maxDownloadBytesSchema = z
   .number()
@@ -211,8 +169,6 @@ const maxDownloadBytesSchema = z
   .positive()
   .max(4 * 1024 * 1024 * 1024, 'maxDownloadBytes exceeds the 4 GiB sanity ceiling')
   .optional();
-
-// ---- root ----
 
 export const configSchema = z
   .object({
@@ -225,7 +181,6 @@ export const configSchema = z
   })
   .strict()
   .superRefine((cfg, ctx) => {
-    // Endpoint names must be unique.
     const seen = new Set<string>();
     cfg.endpoints.forEach((ep, i) => {
       if (seen.has(ep.name)) {
@@ -239,7 +194,6 @@ export const configSchema = z
     });
   });
 
-/** The validated, normalised config (output type after transforms/defaults). */
 export type ValidatedConfig = z.infer<typeof configSchema>;
 export type ValidatedEndpoint = ValidatedConfig['endpoints'][number];
 export type ValidatedScope = ValidatedEndpoint['scope'];

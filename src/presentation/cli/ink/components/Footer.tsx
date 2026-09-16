@@ -1,8 +1,5 @@
-/**
- * Footer — the context-sensitive key hint bar, auto-generated from the binding table: it shows
- * exactly the bindings enabled for the current state (e.g. r/w vanish while the search box is
- * focused), in table order, so the hints can never drift from what the keys actually do.
- */
+// The key-hint bar, auto-generated from the binding table in table order, so the hints can
+// never drift from what the keys actually do.
 import type { FC } from 'react';
 import { Box, Text } from 'ink';
 

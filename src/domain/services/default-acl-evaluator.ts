@@ -1,27 +1,39 @@
 /**
- * DefaultAclEvaluator — canonical pure ACL evaluation. Two-gate, DEFAULT-DENY:
- *
- *   Gate 1 (verb-gate): the verb must be in the target's EFFECTIVE verb set,
- *           resolved by precedence chat-override > group-default > deny.
- *   Gate 2 (scope-gate): an addressed target peer must be a member of the
- *           resolved allow-list.
- *
- * Both gates must pass. The verb-gate fires BEFORE the scope-gate, so a call
- * denied on both surfaces the verb reason.
+ * Pure two-gate, default-deny evaluation.
+ * Gate 1 (verb): the verb must be in the target's effective set, resolved by precedence
+ * chat-override > group-default > deny. Gate 2 (scope): an addressed peer must be a member of
+ * the resolved allow-list. The verb gate fires first, so a call denied on both surfaces the
+ * verb reason.
  */
 import { DomainErrorCode } from '../errors.js';
 import { AclDecisionFactory } from '../value-objects/acl-decision.js';
 import type { AclDecision } from '../value-objects/acl-decision.js';
 import type { PermissionVerb } from '../value-objects/permission-verb.js';
-import type { AclEvaluationInput } from './acl-evaluator.js';
 import { effectiveVerbPermits } from './effective-verb-resolver.js';
+import type { ChatId } from '../value-objects/chat-id.js';
+import type { ResolvedScope } from '../value-objects/resolved-scope.js';
+import type { Endpoint } from '../entities/endpoint.js';
+import type { ChatVerbOverrideTable } from './effective-verb-resolver.js';
+
+export interface AclEvaluationInput {
+  readonly endpoint: Endpoint;
+  readonly resolvedScope: ResolvedScope;
+  readonly verb: PermissionVerb;
+  // Omitted for scope-wide reads, where the scoped client already constrains results to the
+  // allow-list.
+  readonly target?: ChatId;
+  // A target's entry REPLACES the group default (chat-override > group-default > deny).
+  readonly overrides?: ChatVerbOverrideTable;
+  // Subtracted from the resolved effective set, so a kill-switched verb is denied even when the
+  // endpoint or an override would grant it.
+  readonly deniedVerbs?: ReadonlySet<PermissionVerb>;
+}
 
 export class DefaultAclEvaluator {
   public evaluate(input: AclEvaluationInput): AclDecision {
     const { resolvedScope, verb, target } = input;
 
-    // Gate 1: verb must be in the target's resolved effective set. A per-chat
-    // override REPLACES the group default — it can narrow OR escalate.
+    // Gate 1: a per-chat override REPLACES the group default — it can narrow or escalate.
     if (!this.permitsVerb(input, verb)) {
       return AclDecisionFactory.deny(
         verb,

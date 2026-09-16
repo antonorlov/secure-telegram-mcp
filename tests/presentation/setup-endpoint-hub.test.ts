@@ -1,20 +1,7 @@
 /**
- * Endpoint EDIT HUB — unit-drives `runEndpointHub` against a queue-scripted fake
- * `SetupUi` (the same style as setup-mode.test.ts's `makeSetupUi`) with spy
- * `apply`/`remove` callbacks. It exercises every spoke of the hub-and-spoke
- * editor and the LIVE-APPLY + AUTOSAVE + re-render contract:
- *
- *   - each spoke edits the right field, calls `apply` once, and the hub RE-RENDERS
- *     the new value in the next menu's row hints;
- *   - Access opens the picker (the permission SSOT) and projects read / read+write;
- *   - Confirm-writes toggles; the API-key spoke shows the key ONLY while it is held
- *     in memory this session (never persisted — config keeps only the hash) and is
- *     REGENERATE-ONLY for a reloaded endpoint; Regenerate mints a NEW matched pair
- *     (REAL endpoint-token: asserts the hash changed AND still verifies);
- *   - Delete confirms then removes; Back (and Esc) just exit;
- *   - a REJECTED apply (schema-invalid, e.g. a dup rename) keeps the OLD value.
- *
- * Synthetic ENGLISH fixtures + fake ids only (Alice, -1001000000001, tgmcp_ keys).
+ * Unit-drives `runEndpointHub` against a queue-scripted fake `SetupUi` with spy apply and
+ * remove callbacks: each spoke edits its own field, calls `apply` once, and the hub re-renders
+ * the new value in the next menu's row hints.
  */
 import { describe, it, expect, vi } from 'vitest';
 import {
@@ -51,17 +38,13 @@ import type {
   ChatKey,
 } from '../../src/presentation/cli/picker/index.js';
 
-// ---------------------------------------------------------------------------
-// Synthetic fixtures (fake ids + English titles only — never real data).
-// ---------------------------------------------------------------------------
-
 const CHAT_ID = '-1001000000001';
 const CHATS: readonly SetupChat[] = [
   { id: CHAT_ID, title: 'Team', kind: 'group' },
 ];
 const FOLDERS: readonly SetupFolder[] = [];
 
-/** The domain PeerRef form the draft holds for the fixture chat. */
+// The domain PeerRef form the draft holds for the fixture chat.
 const chatRef = (raw: string): PeerRef =>
   PeerRefFactory.fromId(unwrap(ChatId.fromString(raw)));
 
@@ -81,11 +64,12 @@ const baseEndpoint = (over: Partial<EndpointDraft> = {}): EndpointDraft => {
   };
 };
 
-// ---------------------------------------------------------------------------
-// Queue-scripted fake SetupUi (records menu requests so re-render hints can be
-// asserted; menu/text/confirm dequeue scripted answers; pickAccess is injected).
-// ---------------------------------------------------------------------------
-
+/**
+ * --------------------------------------------------------------------------- Queue-scripted
+ * fake SetupUi (records menu requests so re-render hints can be asserted; menu/text/confirm
+ * dequeue scripted answers; pickAccess is injected).
+ * ---------------------------------------------------------------------------
+ */
 interface UiScript {
   readonly menu?: readonly string[];
   readonly text?: readonly string[];
@@ -152,7 +136,7 @@ const makeUi = (script: UiScript): FakeUi => {
   return { ui, menuRequests, notices };
 };
 
-/** Commit the picker with the given bits for exactly the named chat keys. */
+// Commit the picker with the given bits for exactly the named chat keys.
 const commitChats =
   (bits: AccessBits, keys: readonly string[]) =>
   (req: AccessPickerRequest): AccessPickerResult => {
@@ -165,7 +149,7 @@ const commitChats =
     return { committed: true, model: { selection } };
   };
 
-/** The hint rendered for a given row value in a recorded menu request. */
+// The hint rendered for a given row value in a recorded menu request.
 const hintOf = (
   req: MenuRequest<string> | undefined,
   value: string,
@@ -187,7 +171,7 @@ const makeSpies = (applyResult: () => boolean = () => true): Spies => {
   return { applied, apply, remove };
 };
 
-/** The single endpoint handed to `apply` (guarded so tests never `!`/cast). */
+// The single endpoint handed to `apply` (guarded so tests never `!`/cast).
 const onlyApplied = (spies: Spies): EndpointDraft => {
   const [first] = spies.applied;
   if (first === undefined) {
@@ -196,7 +180,7 @@ const onlyApplied = (spies: Spies): EndpointDraft => {
   return first;
 };
 
-/** Narrow an optional string to a value (guarded so tests never `!`/cast). */
+// Narrow an optional string to a value (guarded so tests never `!`/cast).
 const requireString = (value: string | undefined): string => {
   if (value === undefined) {
     throw new Error('expected a defined string');
@@ -219,10 +203,6 @@ const run = (
   };
   return runEndpointHub(deps);
 };
-
-// ---------------------------------------------------------------------------
-// 1) Name spoke
-// ---------------------------------------------------------------------------
 
 describe('endpoint hub — Name spoke', () => {
   it('applies a new name once and re-renders the Name hint', async () => {
@@ -248,10 +228,6 @@ describe('endpoint hub — Name spoke', () => {
     expect(spies.apply).not.toHaveBeenCalled();
   });
 });
-
-// ---------------------------------------------------------------------------
-// 2) Access spoke (the permission SSOT)
-// ---------------------------------------------------------------------------
 
 describe('endpoint hub — Access spoke', () => {
   it('projects a read-only pick and reflects it in the access hint', async () => {
@@ -309,10 +285,6 @@ describe('endpoint hub — Access spoke', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// 3) Confirm-writes toggle
-// ---------------------------------------------------------------------------
-
 describe('endpoint hub — Confirm-writes spoke', () => {
   // Write is projected to per-chat overrides (group verbs stay read-only), so a
   // send override is what makes confirm-writes relevant.
@@ -348,10 +320,6 @@ describe('endpoint hub — Confirm-writes spoke', () => {
     ).toContain('confirm');
   });
 });
-
-// ---------------------------------------------------------------------------
-// 4) API-key spoke: regenerate-only (hash-only; REAL endpoint-token)
-// ---------------------------------------------------------------------------
 
 describe('endpoint hub — API-key spoke', () => {
   it('Regenerate mints a NEW verifying pair and shows it once (never stores it)', async () => {
@@ -428,10 +396,6 @@ describe('endpoint hub — API-key spoke', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// 5) Delete / Back / Esc
-// ---------------------------------------------------------------------------
-
 describe('endpoint hub — Delete and exits', () => {
   it('removes the endpoint after a confirmed Delete', async () => {
     const fake = makeUi({ menu: ['delete'], confirm: [true] });
@@ -473,10 +437,6 @@ describe('endpoint hub — Delete and exits', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// 6) Rejected apply keeps the OLD value
-// ---------------------------------------------------------------------------
-
 describe('endpoint hub — rejected apply', () => {
   it('keeps the old name when apply returns false (schema rejection)', async () => {
     const fake = makeUi({ menu: ['name', 'back'], text: ['bob'] });
@@ -492,10 +452,6 @@ describe('endpoint hub — rejected apply', () => {
     );
   });
 });
-
-// ---------------------------------------------------------------------------
-// uniqueEndpointName — a non-colliding default for first-run creation
-// ---------------------------------------------------------------------------
 
 describe('uniqueEndpointName', () => {
   it('returns the base name when it is free', () => {

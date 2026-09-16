@@ -16,6 +16,8 @@ import {
   type OperatorStatusDto,
   type OperatorRequest,
   type OperatorResult,
+  type OperatorLoginInput,
+  type OperatorLoginResult,
 } from './protocol.js';
 import type { LoginInteraction } from './login-sessions.js';
 import { BoundedLineFramer } from '../bounded-line-framer.js';
@@ -36,25 +38,9 @@ export interface OperatorHandlers {
   beginLogin(
     ownerId: string,
     flowId: string,
-    input: {
-      readonly apiId: number;
-      readonly apiHash: string;
-      readonly method: 'qr' | 'phone';
-    },
+    input: OperatorLoginInput,
     interaction: LoginInteraction,
-  ): Promise<
-    Result<
-      {
-        readonly flowId: string;
-        readonly account: {
-          readonly id: string;
-          readonly displayName: string;
-          readonly username?: string;
-        };
-      },
-      AppError
-    >
-  >;
+  ): Promise<Result<OperatorLoginResult, AppError>>;
   commitLogin(
     ownerId: string,
     flowId: string,
@@ -84,14 +70,14 @@ export interface OperatorHandlers {
 export interface OperatorServerOptions {
   readonly handlers: OperatorHandlers;
   readonly onActivity?: () => void;
-  /** Test/deployment seam; defaults to the short local-socket timeout. */
+  // Test/deployment seam; defaults to the short local-socket timeout.
   readonly firstFrameTimeoutMs?: number;
 }
 
 export interface OperatorServer extends Server {
-  /** Stop every authenticated workflow before daemon ownership teardown. */
+  // Stop every authenticated workflow before daemon ownership teardown.
   closeConnections(): void;
-  /** Wait until the operator mutation already in progress has settled. */
+  // Wait until the operator mutation already in progress has settled.
   drain(): Promise<void>;
 }
 
@@ -118,7 +104,7 @@ const advancesAuthenticationGeneration = (
   operation === 'pin.change' ||
   operation === 'pin.remove';
 
-/** Separate, sequential operator plane. It never parses MCP frames. */
+// Separate, sequential operator plane. It never parses MCP frames.
 export const createOperatorServer = (options: OperatorServerOptions): OperatorServer => {
   const sockets = new Set<Socket>();
   let closing = false;
@@ -382,9 +368,11 @@ export const createOperatorServer = (options: OperatorServerOptions): OperatorSe
       ) {
         authenticationGeneration += 1;
         for (const revoke of activeLogins) revoke();
-        // The successful transition request either supplied the replacement
-        // credential or durably sealed state under it. Carry only this socket;
-        // every other authenticated socket must prove the new generation.
+        /**
+         * The successful transition request either supplied the replacement credential or
+         * durably sealed state under it. Carry only this socket; every other authenticated
+         * socket must prove the new generation.
+         */
         authenticatedGeneration = authenticationGeneration;
       }
       await send({

@@ -60,7 +60,7 @@ interface RemovalClaim {
 
 export interface DaemonLease {
   readonly acquired: boolean;
-  /** True only when this acquisition replaced a lease owned by a dead PID. */
+  // True only when this acquisition replaced a lease owned by a dead PID.
   readonly recoveredDeadOwner: boolean;
   readonly directory: string;
   release(): Promise<void>;
@@ -123,15 +123,17 @@ const parseRemovalClaim = (fileName: string): RemovalClaim | undefined => {
 
 type ClaimOutcome = 'acquired' | 'live' | 'retry';
 
-/** Publish a new exact owner while the claim keeps the lease directory non-empty. */
+// Publish a new exact owner while the claim keeps the lease directory non-empty.
 const publishClaimedOwner = async (
   leasePath: string,
   claimPath: string,
   candidateOwnerPath: string,
 ): Promise<void> => {
-  // The candidate record was fully written before contention began. Replacing
-  // the sole claim first preserves a one-marker state machine: either rename may
-  // fail, but acquisition can always recover the remaining complete record.
+  /**
+   * The candidate record was fully written before contention began. Replacing the sole claim
+   * first preserves a one-marker state machine: either rename may fail, but acquisition can
+   * always recover the remaining complete record.
+   */
   await rename(candidateOwnerPath, claimPath);
   await rename(claimPath, join(leasePath, START_LEASE_OWNER));
 };
@@ -161,7 +163,7 @@ const replaceDeadOwner = async (
   return 'acquired';
 };
 
-/** Resume a remover killed after it claimed `owner` but before it published. */
+// Resume a remover killed after it claimed `owner` but before it published.
 const recoverInterruptedRemoval = async (
   leasePath: string,
   candidateOwnerPath: string,
@@ -194,9 +196,11 @@ const recoverInterruptedRemoval = async (
     if (errnoCode(error) === 'ENOENT') return 'retry';
     throw error;
   }
-  // A delayed remover may have claimed a replacement owner before it noticed
-  // the lease ID mismatch. Trust a complete record in the claimed file over the
-  // older identity encoded in its filename.
+  /**
+   * A delayed remover may have claimed a replacement owner before it noticed the lease ID
+   * mismatch. Trust a complete record in the claimed file over the older identity encoded in
+   * its filename.
+   */
   const recorded = parseLeaseOwner(await readFile(nextPath, 'utf8'));
   const claimedOwner = recorded ?? staleClaim.owner;
   if (processIsAlive(claimedOwner.pid)) {
@@ -325,23 +329,20 @@ const acquireDaemonLease = async (
   return ok(unacquiredLease(directory));
 };
 
-/** Prevent concurrent shims from spawning duplicate daemon workers. */
+// Prevent concurrent shims from spawning duplicate daemon workers.
 export const acquireDaemonStartLease = (
   address: string,
 ): Promise<Result<DaemonLease, string>> =>
   acquireDaemonLease(address, START_LEASE_FILE);
 
-/** Held by the daemon until Telegram ownership and its socket are both gone. */
+// Held by the daemon until Telegram ownership and its socket are both gone.
 export const acquireDaemonProcessLease = (
   address: string,
 ): Promise<Result<DaemonLease, string>> =>
   acquireDaemonLease(address, PROCESS_LEASE_FILE);
 
-/**
- * Remove a crashed daemon's socket only when its lifetime lease proved the owner
- * PID dead. The inode check prevents replacing a path that changed during the
- * liveness probe.
- */
+// Remove a crashed daemon's socket only when its lifetime lease proved the owner PID dead. The
+// inode check prevents replacing a path that changed during the liveness probe.
 export const recoverStaleDaemonSocket = async (
   address: string,
   lease: DaemonLease,
@@ -396,9 +397,11 @@ const removeOwnedLease = async (
   const claimedOwnerPath = join(leasePath, claim.fileName);
   const retiredPath = `${leasePath}.retired-${String(process.pid)}-${randomBytes(8).toString('hex')}`;
   try {
-    // Claim the exact owner marker before checking it. Only one stale cleaner can
-    // move this path, and the non-empty lease directory cannot be replaced while
-    // the claim remains inside it.
+    /**
+     * Claim the exact owner marker before checking it. Only one stale cleaner can move this
+     * path, and the non-empty lease directory cannot be replaced while the claim remains inside
+     * it.
+     */
     await rename(ownerPath, claimedOwnerPath);
   } catch (error) {
     if (errnoCode(error) === 'ENOENT') return;
@@ -439,7 +442,7 @@ const processIsAlive = (pid: number): boolean => {
   }
 };
 
-/** Connect to the daemon, starting it once when absent, then verify its trust boundary. */
+// Connect to the daemon, starting it once when absent, then verify its trust boundary.
 export const openDaemonSocket = async (options: {
   readonly address: string;
   readonly daemonCommand: DaemonCommand;
@@ -452,9 +455,11 @@ export const openDaemonSocket = async (options: {
     const lease = leaseResult.value;
     try {
       if (lease.acquired) {
-        // The initial connect and lease acquisition are separate syscalls. A
-        // concurrent winner may have bound between them, so check once more
-        // before paying for another daemon process.
+        /**
+         * The initial connect and lease acquisition are separate syscalls. A concurrent winner
+         * may have bound between them, so check once more before paying for another daemon
+         * process.
+         */
         socket = await tryConnect(options.address);
         if (socket === undefined) {
           const child = spawn(

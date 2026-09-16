@@ -1,31 +1,7 @@
 /**
- * forward_message — SCOPE & VERB enforcement (the differentiator under test).
- *
- * `forward` is the one tool that addresses TWO peers at once: a SOURCE to read
- * from and a DESTINATION to send to. The product invariants this suite pins:
- *
- *   - SAME-GROUP ONLY (#1): an endpoint is bound to exactly ONE virtual group ->
- *     ONE resolved allow-list. BOTH `fromPeer` (read on source) and `toPeer`
- *     (send on destination) are scope-checked against that single resolved
- *     scope. There is no second scope to reach into, so a cross-GROUP forward is
- *     structurally impossible — you can only forward within the bound group.
- *   - CROSS-SCOPE REJECTED (#1, fail-closed): if EITHER end is outside the
- *     resolved allow-list the request is denied at the ACL chokepoint BEFORE any
- *     quota is spent and BEFORE the scoped writer is ever reached.
- *   - VERB-GATED (#3/#4): `forward` is its own least-privilege verb. The
- *     verb-gated registry lists `forward_message` ONLY for an endpoint that
- *     grants `forward` (the menu IS the ACL); and even if the handler were
- *     reached on a non-`forward` endpoint, the use-case ACL denies at the
- *     verb-gate (defense in depth).
- *   - ANTI-BAN (#7): a permitted forward draws the dedicated `forwards` bucket.
- *   - HITL (#8): forward is a WRITE; when the endpoint policy requires
- *     confirmation, a decline fails the write closed.
- *
- * We drive the REAL presentation tool (`createForwardMessageTool`) over the REAL
- * use-case orchestration (the shared write engine + forward spec) with the REAL pure ACL
- * evaluator (`DefaultAclEvaluator`); only the side-effecting PORTS (rate limiter,
- * confirmer, audit, clock, scoped client) are fakes. That way the assertions are
- * about the actual security chokepoint, not a re-implementation of it.
+ * forward_message — scope and verb enforcement. It is the one tool addressing two peers at
+ * once, so both `fromPeer` and `toPeer` are scope-checked against the endpoint's single
+ * resolved allow-list, and it needs `read` on the source plus `forward` on the destination.
  */
 import { describe, it, expect } from 'vitest';
 import { ok, err, unwrap, type Result } from '../../src/shared/result.js';
@@ -49,7 +25,7 @@ import {
   makeWriteUseCase,
   WRITE_SPECS,
 } from '../../src/application/use-cases/write-use-case-impls.js';
-import { createForwardMessageTool } from '../../src/presentation/mcp/tools/forwardMessage.js';
+import { createForwardMessageTool } from '../../src/presentation/mcp/tools/write-tools.js';
 import { buildEndpointServer } from '../../src/presentation/mcp/server.js';
 import type { ToolOutput } from '../../src/presentation/mcp/registry.js';
 import {
@@ -71,11 +47,11 @@ const DST_IN_GROUP = chatId(200n);
 // …and one chat that belongs to a DIFFERENT group (never in this allow-list).
 const OTHER_GROUP = chatId(999n);
 
-/** The endpoint's resolved allow-list: exactly the two same-group chats. */
+// The endpoint's resolved allow-list: exactly the two same-group chats.
 const sameGroupScope = (): ResolvedScope =>
   unwrap(ResolvedScope.create([SRC_IN_GROUP, DST_IN_GROUP]));
 
-/** The exact validated-args shape the forward tool's handler expects. */
+// The exact validated-args shape the forward tool's handler expects.
 type ForwardArgs = Parameters<
   ReturnType<typeof createForwardMessageTool>['handler']
 >[1];
@@ -89,7 +65,7 @@ interface ForwardHarness {
   readonly audit: RecordingAuditLog;
 }
 
-/** Wire the real use-case + real ACL evaluator over fake ports. */
+// Wire the real use-case + real ACL evaluator over fake ports.
 const buildForward = (over?: {
   readonly rateLimiter?: StubRateLimiter;
   readonly confirmer?: StubConfirmer;
@@ -420,11 +396,12 @@ describe('forward_message: write is HITL-guarded (#8)', () => {
   });
 
   it('an exhausted `forwards` quota blocks the forward at the writer, AFTER a positive HITL (#7)', async () => {
-    // Quota gates the real Telegram dispatch, so it runs AFTER HITL: a human is
-    // asked first (their approval is cheap and consumes no account resource), and
-    // only then does the anti-ban quota refuse the actual send. This ordering is
-    // what lets a DECLINED write cost zero quota (asserted above) while still
-    // capping dispatched forwards.
+    /**
+     * Quota gates the real Telegram dispatch, so it runs AFTER HITL: a human is asked first
+     * (their approval is cheap and consumes no account resource), and only then does the
+     * anti-ban quota refuse the actual send. This ordering is what lets a DECLINED write cost
+     * zero quota (asserted above) while still capping dispatched forwards.
+     */
     const harness = buildForward({
       rateLimiter: new StubRateLimiter(
         err(

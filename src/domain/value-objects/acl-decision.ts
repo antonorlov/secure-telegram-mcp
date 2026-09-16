@@ -1,8 +1,5 @@
-/**
- * AclDecision — the verdict of an access-control evaluation. A denial carries a
- * machine-readable `DomainErrorCode` reason plus a non-sensitive message; no
- * untrusted Telegram prose ever appears here.
- */
+// A denial carries a machine-readable reason plus a non-sensitive message; no untrusted
+// Telegram prose ever appears here.
 import type { DomainErrorCode } from '../errors.js';
 import type { PermissionVerb } from './permission-verb.js';
 

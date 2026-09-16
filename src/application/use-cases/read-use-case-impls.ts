@@ -1,12 +1,5 @@
-/**
- * Read-tier use-case SPECS (queries; no mutation) — the single catalogue-side
- * list of what each read does. Every entry is a small spec handed to the shared
- * read engine ({@link makeReadUseCase}), which hosts the resolve -> ACL -> gate
- * -> read orchestration once. Peer hooks default to the dominant single-peer
- * shape (`[input.peer]` / `primaryKeyOf`); only `search` carries a `gate`
- * (read-side quota for the fan-out) — every other read is a free single-peer or
- * scope-wide query.
- */
+// Read-tier specs; the shared engine hosts resolve -> ACL -> gate -> read. Peer hooks default
+// to the single-peer shape, and only `search` carries a gate.
 import { PermissionVerb } from '../../domain/index.js';
 import type { Page } from '../dtos/pagination.js';
 import type {
@@ -36,13 +29,8 @@ import type {
 export { makeReadUseCase } from './use-case-engine.js';
 export type { ReadUseCaseDeps } from './use-case-engine.js';
 
-/**
- * Typed constructor: binds a spec literal to its contract (in a form the
- * explicit-return-type lint recognizes — `satisfies` is invisible to it) and
- * FREEZES it. The engine reads authorization metadata (verb, gate) from the
- * spec reference at execute time, so an unfrozen entry could drift from the
- * verb the registry snapshot exposes.
- */
+// Freezes each spec: the engine reads verb and gate from the spec reference at execute time, so
+// an unfrozen entry could drift from the verb the registry snapshot exposes.
 const readSpec = <TInput, TOutput>(
   spec: ReadSpec<TInput, TOutput>,
 ): ReadSpec<TInput, TOutput> => {
@@ -55,12 +43,8 @@ export const READ_SPECS = Object.freeze({
     run: (reader, input) => reader.getMessages(input),
   }),
 
-  /**
-   * Read-side quota: one MTProto search costs one unit. An un-peered page reserves
-   * its bounded worst-case fan-out; a continuation cursor advances through larger
-   * scopes without one request amplifying into every chat. Keyed per session, like
-   * the write buckets.
-   */
+  // Read-side quota: one MTProto search costs one unit, and an un-peered page reserves its
+  // bounded worst-case fan-out.
   searchMessages: readSpec<SearchMessagesQuery, Page<MessageDto>>({
     peers: (input) => (input.peer === undefined ? [] : [input.peer]),
     targetKey: (input) => primaryKeyOf(input.peer),
@@ -95,11 +79,8 @@ export const READ_SPECS = Object.freeze({
     run: (reader, input) => reader.getMediaInfo(input),
   }),
 
-  /**
-   * Media EGRESS — its own verb (`read_media`) and the ONE read that AUDITS on
-   * SUCCESS: downloading bytes to disk is a security-relevant egress, so every
-   * completed download appends an allow record (endpoint + verb + target).
-   */
+  // Media egress is the one read that audits on SUCCESS — downloading bytes to disk is a
+  // security-relevant egress.
   downloadMedia: readSpec<DownloadMediaQuery, MediaFileDto>({
     verb: PermissionVerb.ReadMedia,
     auditSuccess: true,

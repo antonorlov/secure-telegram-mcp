@@ -38,14 +38,14 @@ export class GramjsSenderLifecycle {
     }
   }
 
-  /** Neutralize one failed/aborted client without retiring future clients. */
+  // Neutralize one failed/aborted client without retiring future clients.
   public quiesceClient(client: TelegramClient): void {
     for (const sender of this.clientSenders.get(client) ?? []) {
       this.neutralize(sender);
     }
   }
 
-  /** Forget every neutralized sender after its client was proven destroyed. */
+  // Forget every neutralized sender after its client was proven destroyed.
   public releaseClient(client: TelegramClient): void {
     const owned = this.clientSenders.get(client);
     if (owned !== undefined) {

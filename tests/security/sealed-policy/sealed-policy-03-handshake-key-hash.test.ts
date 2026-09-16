@@ -1,14 +1,7 @@
 /**
- * SEALED POLICY 03 — endpoint handshake authorization uses the SEALED API-key
- * hash, so swapping the hash in the config.json draft grants nothing.
- *
- * The daemon resolves a connection to an endpoint by matching the presented API
- * key against `endpoint.tokenHash` (`resolveHandshakeEndpoint`), and those
- * endpoints come from the SEALED policy (`SealedPolicyRepository.load()`). So an
- * attacker who rewrites config.json to a hash of a token THEY hold cannot open
- * the endpoint: the loaded endpoint still carries the operator's sealed hash, and
- * the attacker's token does not match it. The operator's original token still
- * does. This closes the hash-swap escalation end to end.
+ * Handshake authorization matches the presented API key against the SEALED endpoint's
+ * `tokenHash`, so an attacker who rewrites config.json to a hash of their own token gains
+ * nothing.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';

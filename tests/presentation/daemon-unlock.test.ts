@@ -1,7 +1,5 @@
-/**
- * HARDENED unlock path — the pure lock policy. (The masked PIN prompt is pinned
- * in pin-prompt.test.ts; verifyUnlock in the encrypted-store suite.)
- */
+// HARDENED unlock path — the pure lock policy. (The masked PIN prompt is pinned in
+// pin-prompt.test.ts; verifyUnlock in the encrypted-store suite.)
 import { describe, it, expect } from 'vitest';
 
 import {

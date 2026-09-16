@@ -1,10 +1,7 @@
 /**
- * Config -> domain mapper. Builds the DECLARED scope only — the schema's
- * transforms already emit domain `PeerRef`/`FolderRef`/override values through
- * the domain factories, so this step just assembles them into `Endpoint`
- * entities. Folder/username RESOLUTION to canonical ids happens later, in the
- * data layer. Pure & offline; returns a Result and the first invalid value
- * fails the whole load (fail-closed).
+ * Builds the DECLARED scope only — the schema transforms already emitted domain values, and
+ * folder/username resolution to canonical ids happens later in the data layer. Pure and
+ * offline: the first invalid value fails the whole load.
  */
 import { type Result, ok, isErr } from '../shared/index.js';
 import {
@@ -19,9 +16,7 @@ import type { ValidatedConfig } from './schema.js';
 
 export interface MappedConfig {
   readonly endpoints: readonly Endpoint[];
-  /** Daemon-wide kill-switch deny-list (domain verbs). */
   readonly disabledVerbs: readonly PermissionVerb[];
-  /** Global download egress cap (bytes); undefined -> runtime default. */
   readonly maxDownloadBytes?: number;
 }
 
@@ -40,9 +35,6 @@ export const mapConfigToDomain = (
       return sessionRef;
     }
 
-    // Scope chats/folders and the per-chat verb overrides are already domain
-    // values (validated by the factories inside the schema transforms); the
-    // declared overrides are carried onto the endpoint for the runtime to resolve.
     endpoints.push(
       Endpoint.create({
         name: name.value,

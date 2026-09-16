@@ -1,16 +1,7 @@
 /**
- * Endpoint stack builders — the daemon's one composition of an endpoint runtime:
- * one process owns all endpoints, with one GramJS session stack per sessionRef
- * shared across MCP connections. Telegram's auth key therefore has exactly one
- * owner process and connection.
- *
- * Layering: per-session pieces (gateway + folder resolver — the expensive, connection-
- * owning parts) vs per-endpoint pieces (resolved scope + scoped client) vs per-connection
- * pieces (MCP Server + HITL confirmer + use-cases). The daemon caches the first two and
- * mints the third per client connection.
- *
- * Fail-closed + secret-free errors throughout; GramJS never leaks above the
- * infrastructure adapters.
+ * The daemon's one composition of an endpoint runtime: a single process owns all endpoints,
+ * with one GramJS session stack per sessionRef shared across MCP connections, so Telegram's
+ * auth key has exactly one owner process.
  */
 import type {
   AppError,
@@ -38,7 +29,6 @@ import { buildEndpointServer } from './server.js';
 import { buildToolDefinitions } from './tools/index.js';
 import { ElicitationConfirmer } from './elicitation-confirmer.js';
 
-/** The api creds an endpoint runs with: sealed-in-session values + env override. */
 export const resolveApiCreds = (
   material: SessionMaterial,
   overrides: { readonly apiId?: number; readonly apiHash?: string },
@@ -55,16 +45,13 @@ export const resolveApiCreds = (
   return { apiId, apiHash };
 };
 
-/**
- * The per-session stack: the pieces that own the Telegram connection. Exactly one per
- * sessionRef must exist in a process (the daemon caches these).
- */
+// The pieces that own the Telegram connection. Exactly one per sessionRef may exist in a
+// process, and the daemon caches them.
 export interface SessionStack {
   readonly gateway: GramjsTelegramGateway;
   readonly folderResolver: DialogFilterFolderResolver;
 }
 
-/** A policy-derived scoped binding with explicit ownership. */
 export interface EndpointRuntime {
   readonly context: EndpointExecutionContext;
   dispose(): Promise<void>;
@@ -94,19 +81,13 @@ export const createSessionStack = (input: {
   };
 };
 
-/**
- * The daemon-denied set every ACL evaluate() subtracts — the operator's runtime
- * kill-switch. (A build-time default-off verb list existed here while empty; it
- * returns the day a verb family actually ships fail-closed.)
- */
+// The daemon-denied set every ACL evaluate() subtracts — the operator's runtime kill-switch.
 export const daemonDeniedVerbs = (
   killSwitch: KillSwitch,
 ): ReadonlySet<PermissionVerb> => new Set<PermissionVerb>(killSwitch.disabledVerbs);
 
-/**
- * The per-endpoint context: declared scope resolved to the enforcement allow-list
- * (fail-closed) + the one guarded, scoped client.
- */
+// The declared scope resolved to the enforcement allow-list (fail-closed), plus the one
+// guarded, scoped client.
 export const resolveEndpointRuntime = async (input: {
   readonly endpoint: Endpoint;
   readonly killSwitch: KillSwitch;
@@ -128,10 +109,11 @@ export const resolveEndpointRuntime = async (input: {
       `${String(overrides.size)} override(s)`,
   );
 
-  // Bind the physically scope-bound client straight from the gateway. No application-layer
-  // decorator wraps it: the per-chat verb+scope+kill ACL is the use-case engine's
-  // resolve->ACL->audit path, and out-of-scope peers are physically unfetchable one layer
-  // down. The registry's enumerator re-filter is the remaining defense-in-depth.
+  /**
+   * Bind the physically scope-bound client straight from the gateway. No application-layer
+   * decorator wraps it: the per-chat verb, scope and kill-switch ACL is the engine's resolve ->
+   * ACL -> audit path, and out-of-scope peers are physically unfetchable one layer down.
+   */
   const clientRes = await input.stack.gateway.bindScopedClient({
     endpoint: input.endpoint,
     resolvedScope,
@@ -160,19 +142,12 @@ export const resolveEndpointRuntime = async (input: {
 };
 
 /**
- * The per-connection MCP server: use-cases + the static full tool surface + a fresh HITL
- * confirmer attached before the transport goes live (fail-closed). Cheap by design — the
- * daemon mints one per client connection.
- *
- * Static vs dynamic split: the tool menu is the full non-forbidden set for every endpoint
- * (PIN-free, verb/kill-switch-independent — this is why a locked daemon can still list
- * tools and why a live policy apply never needs a reconnect), while the dynamic execution
- * context (the shared gateway + per-chat effective verbs + denied set) is acquired lazily
- * per call via `contextProvider`, which fails closed with `SessionLocked` while locked. The
- * menu grants nothing: execution is the sole per-chat verb+scope+kill ACL.
+ * The per-connection MCP server: use-cases, the static full tool surface and a fresh HITL
+ * confirmer attached before the transport goes live. Cheap by design — the daemon mints one per
+ * client connection.
  */
 export const createConnectionServer = (input: {
-  /** Lazy, per-call context (yields `err(SessionLocked)` while locked). */
+  // Lazy, per-call context (yields `err(SessionLocked)` while locked).
   readonly contextProvider: () => Promise<
     Result<EndpointExecutionContext, AppError>
   >;

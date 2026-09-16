@@ -1,9 +1,7 @@
 /**
- * PeerRef — an UNRESOLVED reference to a Telegram peer:
- * { kind: 'id' | 'username' | 'me' }. The `username`/`me` variants stay
- * unresolved here; they are resolved to a canonical `ChatId` ONLY inside the
- * scoped data layer, because resolving a username needs an unscoped resolver
- * that would otherwise escape the endpoint's scope. Only `id` carries a ChatId.
+ * `username` and `me` stay unresolved here: resolving a username needs an unscoped resolver
+ * that would escape the endpoint's scope, so resolution happens only inside the scoped data
+ * layer.
  */
 import { type Result, ok, err } from '../../shared/index.js';
 import { DomainErrorCode, domainError, type DomainError } from '../errors.js';
@@ -14,7 +12,7 @@ export type PeerRef =
   | { readonly kind: 'username'; readonly username: string }
   | { readonly kind: 'me' };
 
-/** Telegram usernames: 5–32 chars, alnum + underscore, must start with a letter. */
+// Telegram usernames: 5–32 chars, alnum + underscore, must start with a letter.
 const USERNAME_RE = /^[A-Za-z][A-Za-z0-9_]{4,31}$/;
 
 export const PeerRefFactory = {

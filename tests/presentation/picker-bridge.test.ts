@@ -1,7 +1,5 @@
-/**
- * Picker bridge — building the flat picker tree + enumeration from the live
- * setup-client dialogs, and the chat-ref form helpers used for round-tripping.
- */
+// Picker bridge — building the flat picker tree + enumeration from the live setup-client
+// dialogs, and the chat-ref form helpers used for round-tripping.
 import { describe, it, expect } from 'vitest';
 
 import {
@@ -84,9 +82,11 @@ describe('folder RULE evaluation (matches the official clients)', () => {
   });
 
   it('separates EXPLICIT (pinned ∪ included) members from rule-matched ones', () => {
-    // The runtime resolver tracks only explicit members; the bridge must mark
-    // which children are which so a `folders[]` unit covers the explicit set and
-    // rule matches snapshot as individual chats.
+    /**
+     * The runtime resolver tracks only explicit members; the bridge must mark which children
+     * are which so a `folders[]` unit covers the explicit set and rule matches snapshot as
+     * individual chats.
+     */
     const roster: readonly SetupChat[] = [
       { id: '1', title: 'Alice', kind: 'user', isContact: true }, // rule (contacts)
       { id: '2', title: 'Bob', kind: 'user', isContact: true }, // rule + also pinned
@@ -142,10 +142,6 @@ describe('buildPickerTree', () => {
     expect(enumeration.folders).toEqual([]);
   });
 });
-
-// ---------------------------------------------------------------------------
-// Folder -> chat hierarchy
-// ---------------------------------------------------------------------------
 
 const hierChats: readonly SetupChat[] = [
   { id: '-100', title: 'Team', kind: 'group' },

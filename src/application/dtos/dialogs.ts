@@ -1,7 +1,4 @@
-/**
- * Dialog & chat-info read DTOs (in-scope only). Untrusted titles/about carried
- * as UntrustedText for structured emission.
- */
+// Untrusted titles and about-text ride as `UntrustedText` for structured emission.
 import type { UntrustedText } from '../../domain/index.js';
 
 export type ChatKind = 'user' | 'bot' | 'group' | 'supergroup' | 'channel';
@@ -12,7 +9,7 @@ export interface DialogDto {
   readonly kind: ChatKind;
   readonly unreadCount: number;
   readonly pinned: boolean;
-  /** Forum supergroup — its "subchats" are topics; enumerate via list_topics. */
+  // Subchats are topics — enumerate them with list_topics.
   readonly isForum: boolean;
 }
 
@@ -22,16 +19,13 @@ export interface ChatInfoDto {
   readonly kind: ChatKind;
   readonly about?: UntrustedText;
   readonly membersCount?: number;
-  /** Broadcast channel — drives the scope-lint warn on write-verbs. */
+  // Drives the scope-lint warning on write verbs.
   readonly isBroadcast: boolean;
   readonly isForum: boolean;
 }
 
-/**
- * One member of an in-scope group/channel (read verb, `list_participants`). The id
- * is a canonical-id STRING; the display name is attacker-controlled -> untrusted.
- * `username` is the syntactically-constrained public handle (no untrusted prose).
- */
+// The display name is attacker-controlled; `username` is the syntactically-constrained public
+// handle.
 export interface ParticipantDto {
   readonly id: string;
   readonly displayName: UntrustedText;

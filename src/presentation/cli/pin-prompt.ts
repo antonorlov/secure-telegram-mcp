@@ -10,7 +10,7 @@ export interface PinPromptStreams {
   readonly output: NodeJS.WritableStream;
 }
 
-/** Read one masked line (echoes `*`). Resolves undefined on Ctrl-C/EOF. */
+// Read one masked line (echoes `*`). Resolves undefined on Ctrl-C/EOF.
 export const promptPin = (
   title: string,
   streams: PinPromptStreams,
@@ -25,10 +25,12 @@ export const promptPin = (
     const done = (result: string | undefined): void => {
       input.off('data', onData);
       if (raw) tty.setRawMode(false);
-      // Release the stream: on('data')/raw mode leave process.stdin flowing AND
-      // event-loop-REFERENCED, so without this the unlock command hangs after
-      // "Unlocked" until Ctrl-C. A fresh stdin starts paused, so this also leaves
-      // it as we found it. No-op-safe for the test PassThroughs.
+      /**
+       * Release the stream: on('data')/raw mode leave process.stdin flowing AND
+       * event-loop-REFERENCED, so without this the unlock command hangs after "Unlocked" until
+       * Ctrl-C. A fresh stdin starts paused, so this also leaves it as we found it. No-op-safe
+       * for the test PassThroughs.
+       */
       input.pause();
       output.write('\n');
       resolve(result);
@@ -49,10 +51,12 @@ export const promptPin = (
       }
     };
     input.on('data', onData);
-    // A prior prompt's cleanup leaves the stream EXPLICITLY paused, and Node
-    // does NOT auto-resume an explicitly-paused stream when a 'data' listener
-    // attaches — without this, the attempt-2 re-prompt after "Wrong PIN." reads
-    // nothing, the event loop drains, and the process exits (code 0!) leaving a
-    // dangling "PIN: ". No-op when the stream is already flowing.
+    /**
+     * A prior prompt's cleanup leaves the stream EXPLICITLY paused, and Node does NOT
+     * auto-resume an explicitly-paused stream when a 'data' listener attaches — without this,
+     * the attempt-2 re-prompt after "Wrong PIN." reads nothing, the event loop drains, and the
+     * process exits (code 0!) leaving a dangling "PIN: ". No-op when the stream is already
+     * flowing.
+     */
     input.resume();
   });

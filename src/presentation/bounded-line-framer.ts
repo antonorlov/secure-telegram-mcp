@@ -1,4 +1,4 @@
-/** Incremental newline framing with one hard byte cap and no repeated concatenation. */
+// Incremental newline framing with one hard byte cap and no repeated concatenation.
 export class BoundedLineFramer {
   private buffered: Buffer | undefined;
   private length = 0;
@@ -52,7 +52,7 @@ export class BoundedLineFramer {
     return true;
   }
 
-  /** Forget a partial frame and wipe any secret-bearing bytes retained for it. */
+  // Forget a partial frame and wipe any secret-bearing bytes retained for it.
   public clear(): void {
     this.wipeBuffered();
   }
@@ -65,7 +65,7 @@ export class BoundedLineFramer {
     }
   }
 
-  /** Geometric growth keeps total copying linear without reserving the full cap. */
+  // Geometric growth keeps total copying linear without reserving the full cap.
   private ensureCapacity(required: number): void {
     if ((this.buffered?.length ?? 0) >= required) return;
     let capacity = this.buffered?.length ?? Math.min(1024, this.maxLineBytes);

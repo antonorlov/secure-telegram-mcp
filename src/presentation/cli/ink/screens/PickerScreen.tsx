@@ -1,20 +1,7 @@
 /**
- * PickerScreen — the hard step rendered as a Telegram-style tabbed picker: a horizontal
- * folder-tab strip (`All chats` + one tab per folder) over a windowed chat list. Only the
- * rows that fit the terminal render; the list scrolls internally (with `↑ N` / `↓ N`
- * indicators) while the chrome — tabs, search, footer — stays put. Access is colour-coded:
- * green `r` (read-only, safe) vs bold amber `rw` (writable, the escalation warning); a
- * non-member shows no token.
- *
- * A thin render+input adapter: a pure projection of the reducer `PickerState` through the
- * framework-free selectors (`selectWindow`, `selectTabs`, `resolveEffective`, …). It owns no
- * domain/selection state — the parent owns the reducer; the only local state is the `?`
- * overlay toggle and the measured terminal height (fed back as `setViewportRows`).
- *
- * The three axes are kept apart at the input seam: when the search box is focused the tab
- * keymap is inactive and the keyboard is a plain text field, so typing a chat's name can
- * never grant write. Esc walks the single precedence ladder (clear-filter -> close-overlay ->
- * ascend).
+ * The hard step rendered as a Telegram-style tabbed picker: a horizontal folder-tab strip over
+ * a windowed chat list. Only the rows that fit the terminal render, and the list scrolls
+ * internally.
  */
 import type { FC } from 'react';
 import { useCallback, useEffect, useState } from 'react';
@@ -56,7 +43,6 @@ import {
   type RowId,
 } from '../../picker/index.js';
 
-/** The header tallies: how many chats are in scope (across ALL tabs) and writable. */
 export const computeHeaderCounts = (
   state: PickerState,
 ): { readonly inScope: number; readonly writable: number } => {
@@ -72,7 +58,6 @@ export const computeHeaderCounts = (
   return { inScope, writable };
 };
 
-/** The row ids inside the visual range [anchor..cursor] within the VISIBLE list. */
 const visualRangeIds = (
   visible: readonly Row[],
   anchorId: RowId | undefined,
@@ -92,7 +77,6 @@ const visualRangeIds = (
   return ids;
 };
 
-/** The in-process detail line for the cursor row (folder unit facts / chat facts). */
 export const buildDetailText = (
   state: PickerState,
   row: Row | undefined,
@@ -110,7 +94,6 @@ export const buildDetailText = (
   return parts.join(' · ');
 };
 
-/** Map one model `Row` -> the `TreeRowProps` the shared component renders. */
 const toTreeRowProps = (
   state: PickerState,
   row: Row,
@@ -136,12 +119,8 @@ const toTreeRowProps = (
   return bits === undefined ? base : { ...base, folderBits: bits };
 };
 
-/**
- * The picker screen's render-time props: the full reducer state + a dispatch sink + the
- * exit seam, plus an optional theme override for deterministic render-tests. The component
- * is a pure projection of `state` through the derived selectors; key events route through
- * the settled `defaultPickerBindings` table to `dispatch`.
- */
+// A pure projection of `state` through the derived selectors; key events route through the
+// binding table. The theme override exists for deterministic render tests.
 export interface PickerScreenComponentProps {
   readonly state: PickerState;
   readonly onExit: (committed: boolean) => void;
@@ -165,10 +144,11 @@ export const PickerScreen: FC<PickerScreenComponentProps> = ({
   // on resize. The list is the only thing that scrolls (chrome is fixed).
   useEffect(() => {
     const apply = (): void => {
-      // Ink does not scroll/virtualise the live region, so window the list to the measured
-      // terminal height (Ink's documented `useStdout().stdout.rows`). If the height is
-      // unknown (non-TTY / test mock), fall back to a small value that fits any screen rather
-      // than risk an over-tall frame.
+      /**
+       * Ink does not scroll or virtualise the live region, so the list is windowed to the
+       * measured terminal height. When the height is unknown — non-TTY or a test mock — fall
+       * back to a small value that fits any screen.
+       */
       const term = Number.isFinite(stdout.rows)
         ? stdout.rows
         : PICKER_LAYOUT.fallbackTerminalRows;
@@ -225,9 +205,8 @@ export const PickerScreen: FC<PickerScreenComponentProps> = ({
     },
     [dispatch, handleEsc, onExit],
   );
-  // No type-to-filter: an unlisted key is a no-op — we don't hijack it into search. Search is
-  // entered explicitly with `/` (the Find meta binding), which is predictable and matches the
-  // footer hint.
+  // No type-to-filter: an unlisted key is a no-op rather than hijacked into search. Search is
+  // entered explicitly with `/`, which is predictable and matches the footer hint.
   useKeyBindings({
     state,
     isActive: state.focus === 'tree' && !helpOpen,
@@ -235,7 +214,6 @@ export const PickerScreen: FC<PickerScreenComponentProps> = ({
     onMeta,
   });
 
-  // --- Search box is a plain text field while focused: r/w can never fire here.
   const onSearchKey = useCallback(
     (input: string, key: Key): void => {
       if (key.escape) {
@@ -267,7 +245,6 @@ export const PickerScreen: FC<PickerScreenComponentProps> = ({
   );
   useInput(onSearchKey, { isActive: state.focus === 'search' && !helpOpen });
 
-  // --- Overlay capture: any key dismisses the `?` help.
   useInput(
     () => {
       setHelpOpen(false);
@@ -275,7 +252,6 @@ export const PickerScreen: FC<PickerScreenComponentProps> = ({
     { isActive: helpOpen },
   );
 
-  // --- Pure projection of state -> view (derived selectors; never stored). -----
   const tabs = selectTabs(state);
   const visible = selectVisibleRows(state);
   const win = selectWindow(state);

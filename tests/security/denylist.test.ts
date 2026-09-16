@@ -1,21 +1,7 @@
 /**
- * CI DENYLIST GUARD (INVARIANT #2) — a BUILD-FAILING test that fails closed if a
- * forbidden capability ever becomes reachable. It guards two surfaces:
- *
- *  A. The REGISTERED TOOL SURFACE (what the model can actually call): the wired
- *     catalogue must be EXACTLY the curated v1 core set — no raw `invoke`, no
- *     scope-mutation (folder CRUD), no account-global mutation, no
- *     join/import/resolve-username tool, and no admin-tier tool (admin suite is
- *     deferred). The verb-gated registry must also REFUSE a forbidden tool name
- *     at registration time, not merely omit it.
- *
- *  B. The DATA-LAYER REACHABILITY (what the code could be made to call): no
- *     forbidden MTProto request constructor (scope/account/membership mutation)
- *     may appear anywhere under `src/`, so even an internal mistake cannot wire a
- *     dangerous method behind an otherwise-innocent tool.
- *
- * This complements `scripts/check-architecture.mjs` (run via `npm run guard`)
- * with a richer, runtime view of the actual tool objects.
+ * CI denylist guard — a build-failing test that fails closed if a forbidden capability ever
+ * becomes reachable: the wired catalogue must be exactly the curated core set, with no raw
+ * `invoke`, no scope mutation, no account-global mutation and no admin-tier tool.
  */
 import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -61,7 +47,7 @@ const stubDeps = (): WriteUseCaseDeps => ({
   clock: new FakeClock(),
 });
 
-/** The complete, curated v1 core tool surface — the ONLY names allowed to exist. */
+// The complete, curated v1 core tool surface — the ONLY names allowed to exist.
 const EXPECTED_TOOLS: readonly string[] = [
   'get_messages',
   'search_messages',
@@ -83,7 +69,7 @@ const EXPECTED_TOOLS: readonly string[] = [
   'send_media',
 ];
 
-/** Verbs a v1 tool is permitted to require (admin tier is deferred, #4/#10). */
+// Verbs a v1 tool is permitted to require (admin tier is deferred, #4/#10).
 const ALLOWED_V1_VERBS: ReadonlySet<PermissionVerb> = new Set<PermissionVerb>([
   PermissionVerb.Read,
   PermissionVerb.ReadMedia,
@@ -95,10 +81,8 @@ const ALLOWED_V1_VERBS: ReadonlySet<PermissionVerb> = new Set<PermissionVerb>([
   PermissionVerb.React,
 ]);
 
-/**
- * Capabilities that must never be exposed AS A TOOL NAME (#2). A registered tool
- * name matching any of these fails the build, even if it is otherwise unique.
- */
+// Capabilities that must never be exposed AS A TOOL NAME (#2). A registered tool name matching
+// any of these fails the build, even if it is otherwise unique.
 const FORBIDDEN_NAME_PATTERNS: readonly { readonly re: RegExp; readonly why: string }[] = [
   { re: /^invoke$|^raw|request|mtproto/i, why: 'raw MTProto passthrough' },
   { re: /scope|grant|revoke|permission|set_/i, why: 'scope/permission mutation' },
@@ -177,10 +161,11 @@ describe('denylist guard — registered tool surface (#2)', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// B. Data-layer reachability: forbidden MTProto request constructors in src/.
-// ---------------------------------------------------------------------------
-
+/**
+ * --------------------------------------------------------------------------- B. Data-layer
+ * reachability: forbidden MTProto request constructors in src/.
+ * ---------------------------------------------------------------------------
+ */
 const SRC_ROOT = join(process.cwd(), 'src');
 
 const walkTs = (dir: string): readonly string[] => {

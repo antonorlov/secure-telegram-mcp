@@ -1,18 +1,7 @@
 /**
- * VERB-TIER ACCEPTANCE — the product invariants of the settled verb model, driven
- * through the real use-case engine + ACL with fake ports:
- *
- *  (a) a READ endpoint (picker `r` = {read, read_media}) can read, list pinned, list
- *      participants, AND download media, but every write (react/send/delete/forward/
- *      mark_read/draft) is denied.
- *  (b) a READ+WRITE endpoint (picker `rw` = read tier + full write tier) can do the
- *      whole write surface, including send_reaction and mark_read.
- *  (d) an explicit text-only `{read}` grant denies download_media while read still
- *      works; the kill-switch disables read_media and react INDIVIDUALLY, each leaving
- *      the others intact.
- *
- * (c) the forward two-sided rule is pinned in forwardScope.test.ts; (e) the picker
- * collapse contract in config-picker-mapper.test.ts + config-picker-folder-projection.
+ * Verb-tier acceptance through the real use-case engine and ACL: a read endpoint can read, list
+ * pinned and participants and download media, while every write is denied; a read+write
+ * endpoint gets the whole write surface.
  */
 import { describe, it, expect } from 'vitest';
 import { ok, unwrap, type Result } from '../../src/shared/result.js';
@@ -63,7 +52,7 @@ const writeDeps = (): WriteUseCaseDeps => ({
   confirmer: new StubConfirmer(ok(true)),
 });
 
-/** Run one tool's use-case against a context; returns whether it succeeded. */
+// Run one tool's use-case against a context; returns whether it succeeded.
 const RUNNERS: Record<
   string,
   (ctx: EndpointExecutionContext) => Promise<Result<unknown, AppError>>
@@ -101,9 +90,9 @@ const succeeds = async (
   return (await runner(ctxWith(verbs, denied))).ok;
 };
 
-/** picker `r` — the read bit expands to the whole passive read tier + media egress. */
+// picker `r` — the read bit expands to the whole passive read tier + media egress.
 const R_GRANT = [PermissionVerb.Read, PermissionVerb.ReadMedia];
-/** picker `rw` — read tier + the full write tier. */
+// picker `rw` — read tier + the full write tier.
 const RW_GRANT = [
   PermissionVerb.Read,
   PermissionVerb.ReadMedia,
@@ -159,13 +148,13 @@ describe('(d) text-only + INDIVIDUAL kill-switch', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// (c continued) PER-CHAT OVERRIDE PRECEDENCE — an override REPLACES the group
-// verbs for exactly that chat (chat-override > group-default), for BOTH new
-// verbs. Uses a 2-chat scope so "that chat only" is observable: chat A carries
-// the override, chat B rides the group default.
-// ---------------------------------------------------------------------------
-
+/**
+ * --------------------------------------------------------------------------- (c continued)
+ * PER-CHAT OVERRIDE PRECEDENCE — an override REPLACES the group verbs for exactly that chat
+ * (chat-override > group-default), for BOTH new verbs. Uses a 2-chat scope so "that chat only"
+ * is observable: chat A carries the override, chat B rides the group default.
+ * ---------------------------------------------------------------------------
+ */
 const CHAT_A = IN_SCOPE; // 100
 const CHAT_B = chatId(101n);
 const PEER_A = PeerRefFactory.fromId(CHAT_A);

@@ -1,60 +1,37 @@
 /**
- * CredentialPrompter — interactive acquisition of the operator's Telegram app credentials
- * (api_id/api_hash) for the setup flow.
- *
- * Setup is interactive by contract, so it acquires these credentials at the prompt
- * (api_hash with terminal echo suppressed) rather than requiring `export
- * TELEGRAM_API_HASH=...`, which would write the secret into shell history in plaintext. The
- * env value (if any) is an optional pre-fill: present-and-valid is used as-is, otherwise we
- * prompt. The api creds sealed into the encrypted session remain the source of truth; this
- * is acquisition-only.
- *
- * Validation (fail-closed): api_id must be a positive integer; api_hash must be 32
- * hexadecimal characters (whitespace trimmed, case normalised). Empty/whitespace-only input
- * is rejected with a re-prompt.
+ * Interactive acquisition of the operator's Telegram app credentials for setup. Setup is
+ * interactive by contract, so it prompts for them — api_hash with terminal echo suppressed —
+ * rather than requiring them from the environment, where they would land in shell history.
  */
 import { isOk, ok, err, type Result } from '../../shared/index.js';
 
-/** Where to obtain Telegram app credentials (also used by the CLI usage text). */
+// Where to obtain Telegram app credentials (also used by the CLI usage text).
 export const CREDENTIALS_URL = 'https://my.telegram.org/apps';
 
-/** Bounded re-prompt attempts before giving up (mirrors the PIN-entry cap). */
+// Bounded re-prompt attempts before giving up (mirrors the PIN-entry cap).
 const MAX_ATTEMPTS = 3;
 
-/**
- * The gathered Telegram app credentials, as a typed input DTO. These are sealed into the
- * encrypted session at setup; they are never re-read from the environment downstream.
- */
+// Sealed into the encrypted session at setup; never re-read from the environment downstream.
 export interface ApiCredentials {
   readonly apiId: number;
   readonly apiHash: string;
 }
 
-/**
- * Optional pre-fill sourced out-of-band (e.g. a 0600 `--env-file` for CI). A
- * present-and-valid value is used without prompting; anything absent or invalid
- * falls through to an interactive, validating prompt.
- */
+// A present-and-valid pre-fill is used without prompting; anything absent or invalid falls
+// through to an interactive, validating prompt.
 export interface ApiCredentialsPrefill {
   readonly apiId?: number | undefined;
   readonly apiHash?: string | undefined;
 }
 
-/**
- * The narrow console capabilities the prompter needs: a diagnostic line printer, a plain
- * prompt, and an echo-off secret prompt. The CLI `Console` satisfies this structurally;
- * tests supply a fake.
- */
+// A diagnostic line printer, a plain prompt and an echo-off secret prompt. The CLI console
+// satisfies this structurally; tests supply a fake.
 export interface CredentialPromptConsole {
-  /**
-   * A transient one-line status/diagnostic (a validation error, an "ignoring env value"
-   * notice, an abort line). Single-line only.
-   */
   print(message?: string): void;
   /**
-   * Prompt for one value. `help` lines are rendered on the prompt screen and stay visible
-   * while the operator types — guidance on a separate acknowledged screen would have
-   * vanished by the time the field appears.
+   * `help` lines render on the prompt screen and stay visible while the operator types —
+   * guidance on a separate acknowledged screen would have vanished by the time the field
+   * appears.
    */
   ask(question: string, help?: readonly string[]): Promise<string>;
   askSecret(question: string, help?: readonly string[]): Promise<string>;
@@ -62,8 +39,6 @@ export interface CredentialPromptConsole {
 
 // Shared, pure validators — reused for both the env pre-fill check and the interactive
 // re-prompt loop.
-
-/** Parse/validate an api_id: a positive integer. */
 export const parseApiId = (raw: string): Result<number, string> => {
   const trimmed = raw.trim();
   if (trimmed.length === 0) {
@@ -76,10 +51,8 @@ export const parseApiId = (raw: string): Result<number, string> => {
   return ok(value);
 };
 
-/**
- * Parse/validate an api_hash: 32 hexadecimal characters (case-insensitive). Surrounding
- * whitespace is trimmed and the value is lower-cased; empty/whitespace-only input is rejected.
- */
+// 32 hexadecimal characters, case-insensitive: surrounding whitespace is trimmed, the value is
+// lower-cased, and empty input is rejected.
 export const parseApiHash = (raw: string): Result<string, string> => {
   const trimmed = raw.trim();
   if (trimmed.length === 0) {
@@ -91,17 +64,14 @@ export const parseApiHash = (raw: string): Result<string, string> => {
   return ok(trimmed.toLowerCase());
 };
 
-// Interactive implementation
-
 export class InteractiveCredentialPrompter {
   public constructor(private readonly con: CredentialPromptConsole) {}
 
   public async acquire(
     prefill: ApiCredentialsPrefill,
   ): Promise<ApiCredentials | undefined> {
-    // The "where to obtain credentials" guidance rides on both prompt screens (visible
-    // while typing), never a separate acknowledged screen that has vanished by the time the
-    // fields appear. The last line names which of the two values this screen wants.
+    // The guidance rides on both prompt screens, visible while typing; its last line names
+    // which of the two values this screen wants.
     const whereFrom = [
       `Create an app at ${CREDENTIALS_URL}`,
       '(log in with your phone number, then open "API development tools").',
@@ -137,11 +107,8 @@ export class InteractiveCredentialPrompter {
     return { apiId, apiHash };
   }
 
-  /**
-   * Resolve one field: use a present-and-valid pre-fill as-is, otherwise prompt
-   * (echo-off for secrets) and re-validate up to `MAX_ATTEMPTS` times. Returns
-   * `undefined` when the operator exhausts the attempts (the caller aborts).
-   */
+  // Uses a present-and-valid pre-fill as-is, otherwise prompts — echo-off for secrets — and
+  // re-validates up to `MAX_ATTEMPTS`. Returns `undefined` when the attempts are exhausted.
   private async resolve<T>(params: {
     readonly label: string;
     readonly prompt: string;

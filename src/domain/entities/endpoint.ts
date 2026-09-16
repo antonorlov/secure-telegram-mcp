@@ -1,10 +1,7 @@
 /**
- * Endpoint — "what this MCP endpoint may do", keyed by EndpointName. The one
- * aggregate root: binds the DECLARED scope (folders not yet resolved), the
- * granted verb set (default-deny — what the execution-time ACL consults),
- * the declared per-chat verb overrides, the SessionRef it authenticates with,
- * and the write-confirmation (HITL) flag. Peer-membership is enforced
- * separately by the ACL evaluator against the ResolvedScope.
+ * The one aggregate root: declared scope, granted verbs (default-deny), declared per-chat
+ * overrides, the session ref it authenticates with and the HITL flag. Peer membership is
+ * enforced separately, by the ACL evaluator against the ResolvedScope.
  */
 import { uniqueFrozen } from '../../shared/index.js';
 import type {
@@ -18,19 +15,11 @@ import {
 import type { Scope } from '../value-objects/scope.js';
 import type { PeerRef } from '../value-objects/peer-ref.js';
 
-/**
- * Write-confirmation default when an endpoint does not specify one: OFF
- * (opt-in). Imported by the config schema and setup wizard as the shared default.
- */
+// Shared default, imported by the config schema and the setup wizard.
 export const DEFAULT_CONFIRM_WRITES = false;
 
-/**
- * A DECLARED per-chat verb override as authored in config: an unresolved
- * `PeerRef` paired with the verbs that REPLACE the endpoint default for that
- * chat. The runtime resolves username/me peers to ids and builds the keyed
- * `ChatVerbOverrideTable` the ACL evaluator consumes (mirroring Scope ->
- * ResolvedScope).
- */
+// Verbs that REPLACE the endpoint default for one chat. The runtime resolves the peer to an id
+// and builds the keyed table the ACL evaluator consumes.
 export interface DeclaredChatVerbOverride {
   readonly peer: PeerRef;
   readonly verbs: readonly PermissionVerb[];
@@ -38,15 +27,11 @@ export interface DeclaredChatVerbOverride {
 
 export class Endpoint {
   public readonly name: EndpointNameValue;
-  /** The DECLARED scope (folders not yet resolved to canonical ids). */
   public readonly scope: Scope;
   public readonly sessionRef: SessionRefValue;
-  /**
-   * HITL flag: writes require human confirmation when true. Read verbs are
-   * never gated; per-endpoint, defaults to OFF (`DEFAULT_CONFIRM_WRITES`).
-   */
+  // Read verbs are never gated; per-endpoint, defaults to off.
   public readonly confirmWrites: boolean;
-  /** Salted digest of the endpoint API key; authorization data, never key material. */
+  // Salted digest of the endpoint API key — authorization data, never key material.
   public readonly tokenHash: string;
   private readonly grantedVerbSet: ReadonlySet<PermissionVerb>;
   private readonly chatOverrides: readonly DeclaredChatVerbOverride[];
@@ -95,20 +80,14 @@ export class Endpoint {
     );
   }
 
-  /** A verb is permitted only if this endpoint grants it (default-deny). */
   public permits(verb: PermissionVerb): boolean {
     return this.grantedVerbSet.has(verb);
   }
 
-  /**
-   * The DECLARED per-chat verb overrides (unresolved); empty for the common
-   * case. The runtime resolves these to the keyed `ChatVerbOverrideTable`.
-   */
   public overrides(): readonly DeclaredChatVerbOverride[] {
     return this.chatOverrides;
   }
 
-  /** Whether a verb requires human confirmation before execution. */
   public requiresConfirmation(verb: PermissionVerb): boolean {
     return this.confirmWrites && isWriteVerb(verb);
   }

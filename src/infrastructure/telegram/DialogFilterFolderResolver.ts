@@ -56,9 +56,9 @@ import { canonicalPeerIdFromInputPeer } from './telegram-peer-id.js';
  * fake. Deliberately tiny — read dialog filters and resolve a peer id.
  */
 export interface DialogFilterClient {
-  /** Invoke a raw MTProto request (used here for `messages.GetDialogFilters`). */
+  // Invoke a raw MTProto request (used here for `messages.GetDialogFilters`).
   invoke<R extends Api.AnyRequest>(request: R): Promise<R['__response']>;
-  /** Resolve an `@username` or `'me'` to its canonical (marked) peer id string. */
+  // Resolve an `@username` or `'me'` to its canonical (marked) peer id string.
   getPeerId(peer: string, addMark?: boolean): Promise<string>;
 }
 
@@ -75,13 +75,13 @@ export interface DialogFilterClientProvider {
   ): Promise<Result<T, AppError>>;
 }
 
-/** Resolves `'me'` / `InputPeerSelf` to the authenticated account's id, once. */
+// Resolves `'me'` / `InputPeerSelf` to the authenticated account's id, once.
 type SelfIdResolver = () => Promise<bigint>;
 
 export class DialogFilterFolderResolver {
   public constructor(private readonly provider: DialogFilterClientProvider) {}
 
-  /** Resolve afresh over a borrowed shared client; id refs issue no MTProto request. */
+  // Resolve afresh over a borrowed shared client; id refs issue no MTProto request.
   public resolve(
     input: ResolveScopeInput,
   ): Promise<Result<ResolvedAccess, AppError>> {
@@ -136,9 +136,11 @@ const resolveWithClient = async (
         }
       }
     }
-    // Overrides resolve through the SAME peer machinery: each declared override
-    // peer -> canonical id -> table entry. Fail-closed on any ref that does not
-    // resolve (never silently drop a restriction).
+    /**
+     * Overrides resolve through the SAME peer machinery: each declared override peer ->
+     * canonical id -> table entry. Fail-closed on any ref that does not resolve (never silently
+     * drop a restriction).
+     */
     const overrideTable = new Map<string, ReadonlySet<PermissionVerb>>();
     for (const ov of overrides) {
       const id = await resolveExplicitChatId(client, ov.peer, getSelfId);
@@ -162,7 +164,7 @@ const resolveWithClient = async (
   }
 };
 
-/** Fetch the account's dialog filters (folders) via raw MTProto. */
+// Fetch the account's dialog filters (folders) via raw MTProto.
 const fetchDialogFilters = async (
   client: DialogFilterClient,
 ): Promise<readonly Api.TypeDialogFilter[]> => {
@@ -170,7 +172,7 @@ const fetchDialogFilters = async (
   return result.filters;
 };
 
-/** Find the filter a {@link FolderRef} names (the default "All chats" never matches). */
+// Find the filter a {@link FolderRef} names (the default "All chats" never matches).
 const matchDialogFilter = (
   filters: readonly Api.TypeDialogFilter[],
   ref: FolderRef,
@@ -217,7 +219,7 @@ const collectFilterPeerIds = async (
   return out;
 };
 
-/** {@link canonicalPeerIdFromInputPeer}, resolving `InputPeerSelf` on demand. */
+// {@link canonicalPeerIdFromInputPeer}, resolving `InputPeerSelf` on demand.
 const inputPeerId = async (
   peer: Api.TypeInputPeer,
   getSelfId: SelfIdResolver,
@@ -229,7 +231,7 @@ const inputPeerId = async (
   return peer.className === 'InputPeerSelf' ? await getSelfId() : undefined;
 };
 
-/** Resolve one explicit chat ref to a canonical id (network only for username/me). */
+// Resolve one explicit chat ref to a canonical id (network only for username/me).
 const resolveExplicitChatId = async (
   client: DialogFilterClient,
   chat: PeerRef,
@@ -257,7 +259,7 @@ const resolveExplicitChatId = async (
   }
 };
 
-/** Build the enforcement {@link ResolvedScope}; FAIL-CLOSED on an empty set. */
+// Build the enforcement {@link ResolvedScope}; FAIL-CLOSED on an empty set.
 const buildResolvedScope = (
   peerIds: readonly bigint[],
 ): Result<ResolvedScope, AppError> => {

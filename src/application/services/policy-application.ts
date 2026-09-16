@@ -1,11 +1,10 @@
 import { AppErrorCode, appError } from '../errors.js';
 import type { AppError } from '../errors.js';
-import type { ConfigDocumentParser } from '../ports/config-document-parser.js';
-import type { SealedPolicyStore } from '../ports/sealed-policy-store.js';
+import type { ConfigDocumentParser, SealedPolicyStore } from '../ports/configuration.js';
 import type { SessionGate } from './session-gate.js';
 import { err, isErr, ok, type Result } from '../../shared/index.js';
 
-/** Validate, durably seal, and publish one exact policy document. */
+// Validate, durably seal, and publish one exact policy document.
 export class PolicyApplicationService {
   public constructor(
     private readonly parser: ConfigDocumentParser,

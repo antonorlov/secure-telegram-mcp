@@ -1,44 +1,30 @@
 /**
- * Pure structural sanitization for untrusted Telegram content. Dependency-free
- * so the rules can be unit-tested in isolation and reused by the `Sanitizer`
- * adapter.
- *
- * The cleaning is PURELY STRUCTURAL — never keyword/heuristic filtering:
- *   1. NFC-normalise,
- *   2. drop Unicode Cc/Cf control & format code points EXCEPT \n and \t
- *      (zero-width spaces/joiners, bidi overrides/isolates, BOM/ZWNBSP, C0/C1),
- *   3. apply a per-field length cap (in CODE POINTS) and append an EXPLICIT,
- *      model-visible `[truncated]` marker when it bites.
- *
- * Homoglyphs (e.g. Cyrillic U+0430 vs Latin 'a') are DELIBERATELY left intact:
- * folding them is lossy and brittle; the defence is structural cleaning plus
- * structured-JSON emission under named keys, not confusable matching.
+ * Purely structural cleaning, never keyword or heuristic filtering: NFC-normalise, drop Unicode
+ * Cc/Cf control and format code points except \n and \t, then cap per field in CODE POINTS and
+ * append a model-visible `[truncated]` marker.
+ * Homoglyphs are deliberately left intact — folding them is lossy and brittle, and the defence
+ * is structural cleaning plus structured-JSON emission.
  */
 
 /**
- * Stripped code points: Unicode control (Cc) + format (Cf, incl. the tag block
- * U+E0000-E007F ASCII-smuggling channel + zero-width/bidi/BOM), AND the
- * VARIATION SELECTORS (U+FE00-FE0F, U+E0100-E01EF, category Mn) — an
- * emoji-presentation channel with no legible meaning that is a known hidden-data
- * vector. General combining diacritics (U+0300-036F) are legitimate and KEPT.
+ * Strips Cc/Cf — including the U+E0000-E007F tag block used for ASCII smuggling, zero-width,
+ * bidi and BOM — plus the variation selectors, an emoji-presentation channel with no legible
+ * meaning. General combining diacritics are legitimate and kept.
  */
 const STRIPPED_CODE_POINT =
   /\p{Cc}|\p{Cf}|[\u{FE00}-\u{FE0F}\u{E0100}-\u{E01EF}]/u;
 
-/** Cc code points that are legible whitespace and therefore preserved. */
+// Cc code points that are legible whitespace and therefore preserved.
 const PRESERVED_CONTROLS: ReadonlySet<string> = new Set(['\n', '\t']);
 
-/** Default per-field length cap (code points) before `[truncated]` is appended. */
+// Default per-field length cap (code points) before `[truncated]` is appended.
 export const DEFAULT_MAX_FIELD_LENGTH = 8192;
 
-/** Explicit, model-visible marker appended when a field is length-capped. */
+// Explicit, model-visible marker appended when a field is length-capped.
 export const TRUNCATION_MARKER = '[truncated]';
 
-/**
- * Clean a single raw string; pure (same input -> same output). The cap is in
- * CODE POINTS over the CLEANED text, and the explicit `[truncated]` marker is
- * appended when it bites.
- */
+// Clean a single raw string; pure (same input -> same output). The cap is in CODE POINTS over
+// the CLEANED text, and the explicit `[truncated]` marker is appended when it bites.
 export const sanitizeString = (
   raw: string,
   maxLength: number = DEFAULT_MAX_FIELD_LENGTH,

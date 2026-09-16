@@ -1,40 +1,32 @@
 /**
- * UI port — the seam between the framework-free picker/review use-cases and the Ink
- * render/input adapter. The use-cases depend only on these narrow role interfaces; the Ink
- * layer implements them. This keeps the enumerate/save logic free of any Ink/React import
- * and unit-testable with fakes (and the picker reducer pure).
- *
- * Framework-free: no React/Ink import — only plain DTOs + the picker model + the domain verb
- * vocabulary.
+ * The seam between the framework-free picker and review use-cases and the Ink render/input
+ * adapter: the use-cases depend only on these narrow roles, which keeps the enumerate and save
+ * logic free of any Ink import.
  */
 import type { AccessBits } from '../picker/index.js';
 
-// Review spoke (security-first: resolved matrix + diff + blast radius)
-
-/** One row of the resolved access matrix shown before save. */
 export interface ReviewMatrixRow {
   readonly title: string;
   readonly bits: AccessBits;
 }
 
-/** The inverse blast-radius audit entry ("this chat is exposed where"). */
+// The inverse blast-radius audit entry ("this chat is exposed where").
 export interface BlastRadiusEntry {
   readonly title: string;
-  /** Endpoints (by name) that would gain write to this chat after save. */
+  // Endpoints (by name) that would gain write to this chat after save.
   readonly writableFromEndpoints: readonly string[];
 }
 
 export interface ReviewInput {
   readonly endpointName: string;
   readonly matrix: readonly ReviewMatrixRow[];
-  /** Human-readable scope/access diff vs. the on-disk config. */
   readonly diff: readonly string[];
   readonly blastRadius: readonly BlastRadiusEntry[];
-  /** True when any chat would be writable — gates the type-the-name confirm. */
+  // True when any chat would be writable — gates the type-the-name confirm.
   readonly hasWritable: boolean;
 }
 
-/** The review outcome: cancel (default-safe) or a confirmed save. */
+// The review outcome: cancel (default-safe) or a confirmed save.
 export type ReviewDecision =
   | { readonly type: 'cancel' }
   | { readonly type: 'confirm-save' };
@@ -52,7 +44,7 @@ export interface MenuOption<T> {
   readonly hint?: string;
 }
 
-/** The DTO one arrow-nav menu renders: a title, an optional subtitle, the options. */
+// The DTO one arrow-nav menu renders: a title, an optional subtitle, the options.
 export interface MenuRequest<T> {
   readonly title: string;
   readonly subtitle?: string;

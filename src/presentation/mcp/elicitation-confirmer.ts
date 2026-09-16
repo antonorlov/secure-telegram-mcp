@@ -34,7 +34,7 @@ const APPROVE_FIELD = 'approve';
 export class ElicitationConfirmer implements Confirmer {
   private server: McpServer | undefined;
 
-  /** Bind the live MCP server once it has been built (composition root). */
+  // Bind the live MCP server once it has been built (composition root).
   public attach(server: McpServer): void {
     this.server = server;
   }

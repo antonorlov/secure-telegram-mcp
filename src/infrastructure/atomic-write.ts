@@ -1,13 +1,10 @@
 /**
- * atomicWrite — the ONE crash-safe, owner-only file write the whole
- * infrastructure layer shares. Write a uniquely-named temp file (created
- * owner-only, 0600 — non-negotiable), fsync it, chmod to defeat umask, then atomically publish
- * it by rename (replace) or hard-link (create-new). The parent directory is
- * fsynced on POSIX so the committed entry survives power loss. A failed write
- * never leaves a partial file; the temp file is cleaned up.
- *
- * Fail-closed + secret-free: returns a Validation-free `GatewayUnavailable`
- * AppError on any I/O failure (no path echo beyond the target, no errno stack).
+ * The one crash-safe, owner-only write the whole infrastructure layer shares: a uniquely-named
+ * temp file created 0600, fsynced, chmod'ed to defeat umask, then published atomically by
+ * rename (replace) or hard-link (create-new). The parent directory is fsynced on POSIX so the
+ * committed entry survives power loss, and a failed write never leaves a partial file.
+ * Fail-closed and secret-free: any I/O failure becomes a `GatewayUnavailable` error with no
+ * path echo or errno stack.
  */
 import { randomBytes } from 'node:crypto';
 import { link, mkdir, open, rename, rm } from 'node:fs/promises';
@@ -85,7 +82,7 @@ export const atomicWrite = (
   data: string | Buffer,
 ): Promise<Result<void, AppError>> => commitAtomic(targetPath, data, true);
 
-/** Atomically create a new owner-only file; an existing path is never replaced. */
+// Atomically create a new owner-only file; an existing path is never replaced.
 export const atomicCreate = (
   targetPath: string,
   data: string | Buffer,

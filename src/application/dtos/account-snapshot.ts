@@ -1,6 +1,6 @@
 import type { ChatKind } from './dialogs.js';
 
-/** A sanitized account dialog shown only to the authenticated operator. */
+// A sanitized account dialog shown only to the authenticated operator.
 export interface AccountChatDto {
   readonly id: string;
   readonly title: string;
@@ -13,7 +13,6 @@ export interface AccountChatDto {
   readonly hasUnreadMention?: boolean;
 }
 
-/** Telegram folder metadata needed by the scope picker. */
 export interface AccountFolderFlagsDto {
   readonly contacts: boolean;
   readonly nonContacts: boolean;
@@ -33,7 +32,6 @@ export interface AccountFolderDto {
   readonly flags?: AccountFolderFlagsDto;
 }
 
-/** One consistent operator view of the account's dialogs and folders. */
 export interface AccountSnapshotDto {
   readonly chats: readonly AccountChatDto[];
   readonly folders: readonly AccountFolderDto[];

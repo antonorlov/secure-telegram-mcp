@@ -1,11 +1,7 @@
 /**
- * Per-chat verb resolution — the domain ACL precedence chat-override >
- * group-default > deny. Two layers are pinned here:
- *
- *   1. the allocation-free `effectiveVerbPermits` precedence predicate, and
- *   2. the `DefaultAclEvaluator` wired to a resolved override table — proving an
- *      override NARROWS and ESCALATES per chat, never widens scope, and that an
- *      override-free / target-free call is byte-for-byte the old verb-gate.
+ * The domain ACL precedence chat-override > group-default > deny, pinned at both layers: the
+ * allocation-free predicate, and the evaluator wired to a resolved override table — an override
+ * narrows and escalates per chat but never widens scope.
  */
 import { describe, it, expect } from 'vitest';
 import { unwrap } from '../../src/shared/result.js';
@@ -196,9 +192,11 @@ describe('chatOverridePermitsVerb — the post-resolution gate (H1 regression)',
   });
 
   it('a NARROWING override (read-only) DENIES the write — regardless of how the id was resolved', () => {
-    // The key is the SAME whether the peer arrived as {id}, {username} or {me};
-    // enforcement is keyed by the resolved canonical id, so all three forms are
-    // gated identically (this is exactly the id-only bypass the audit found).
+    /**
+     * The key is the SAME whether the peer arrived as {id}, {username} or {me}; enforcement is
+     * keyed by the resolved canonical id, so all three forms are gated identically (this is
+     * exactly the id-only bypass the audit found).
+     */
     const overrides: ChatVerbOverrideTable = new Map([[key, new Set([PermissionVerb.Read])]]);
     expect(chatOverridePermitsVerb({ key, verb: PermissionVerb.Send, overrides })).toBe(false);
     expect(chatOverridePermitsVerb({ key, verb: PermissionVerb.Read, overrides })).toBe(true);

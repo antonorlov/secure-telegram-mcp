@@ -1,11 +1,8 @@
 /**
- * promptPin — the masked TTY secret reader for the daemon unlock path.
- *
- * Regression: the wrong-PIN retry loop calls promptPin AGAIN on the same stdin.
- * The first prompt's cleanup explicitly pauses the stream, and Node does not
- * auto-resume an explicitly-paused stream when a 'data' listener attaches — so
- * without an explicit resume() the second prompt never received input and the
- * process exited silently with a dangling "PIN: " (observed live).
+ * Regression: the wrong-PIN retry loop calls promptPin again on the same stdin. The first
+ * prompt's cleanup explicitly pauses the stream, and Node does not auto-resume an
+ * explicitly-paused stream when a 'data' listener attaches, so without an explicit resume the
+ * second prompt never received input.
  */
 import { describe, it, expect } from 'vitest';
 import { PassThrough } from 'node:stream';

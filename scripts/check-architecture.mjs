@@ -1,23 +1,8 @@
 #!/usr/bin/env node
 /**
- * CI architecture / denylist guard — fails closed on boundary violations that
- * would weaken the security posture. Complements the ESLint boundary rules with
- * a coarse, dependency-free scan that also runs in CI.
- *
- * Layer-boundary rules (GramJS-only-in-infrastructure, inward dependency
- * direction) live in eslint.config.js `no-restricted-imports` and run via
- * `npm run lint` in CI. This script keeps only what ESLint cannot express:
- *
- * Rules:
- *  3. No tool named exactly 'invoke' / 'raw' (no raw MTProto method exposed).
- *  4. No scope-mutation tool names (set_scope / grant / revoke / add_chat ...).
- *  5. MTProto request constructors are ALLOW-LISTED (invariant #2): every
- *       `new Api.X(...)` in src/ must name a vetted read/addressing method —
- *       anything else (scope mutation, account-global mutation, membership
- *       join, contact mutation, ...) fails CLOSED, including methods this list
- *       has never heard of. Denylist evasion via aliasing/destructuring/
- *       computed access of `Api`, or via a non-constructor `.invoke(...)`
- *       argument, is refused by companion patterns.
+ * CI architecture and denylist guard: fails closed on boundary violations that would weaken the
+ * security posture, complementing the ESLint boundary rules with a coarse, dependency-free scan
+ * that also runs in CI.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
@@ -48,15 +33,9 @@ const walk = (dir) => {
 const importsFrom = (src, re) => re.test(src);
 
 /**
- * The ONLY MTProto request/type constructors this product may instantiate —
- * vetted read/addressing methods plus the two inert argument types the send
- * paths build. Everything NOT on this list fails closed (an allow-list cannot
- * be evaded by a method the list omits — the failure mode of the previous
- * denylist, which e.g. never named contact mutation). High-level GramJS calls
- * (client.getMessages / sendMessage / ...) do not appear here: they carry no
- * `new Api.` constructor, and the forbidden-capability surface is what this
- * rule bounds.
- * @type {Set<string>}
+ * The ONLY MTProto request and type constructors this product may instantiate — vetted read and
+ * addressing methods plus the two inert argument types the send paths build. Anything not on
+ * this list fails closed, and an allow-list cannot be evaded by a method nobody thought to ban.
  */
 const ALLOWED_MTPROTO = new Set([
   'messages.GetDialogFilters', // folder resolution (READ)
@@ -74,13 +53,9 @@ const ALLOWED_MTPROTO = new Set([
 ]);
 
 /**
- * Evasion patterns for rule 5: with constructors allow-listed on the literal
- * `new Api.X(...)` form, any OTHER way of reaching a request class must be
- * refused wholesale in GramJS-importing files — aliasing, destructuring, or
- * computed access would let a forbidden constructor hide from the scan, and an
- * `.invoke()` argument that is not a direct `new Api.` expression could smuggle
- * a prebuilt request object in.
- * @type {{ pattern: RegExp; reason: string }[]}
+ * With constructors allow-listed on the literal `new Api.X(...)` form, any OTHER way of
+ * reaching a request class must be refused wholesale in GramJS-importing files: aliasing,
+ * destructuring or computed access would let a forbidden call slip through.
  */
 const API_EVASION = [
   { pattern: /\bApi\s*\[/, reason: "computed access on 'Api' (Api[...])" },

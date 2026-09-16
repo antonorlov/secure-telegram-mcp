@@ -32,10 +32,10 @@ export interface ReviewScreenViewProps {
   readonly theme?: Theme;
 }
 
-/** Local UI phase: browse the audit, or type the name to confirm a writable save. */
+// Local UI phase: browse the audit, or type the name to confirm a writable save.
 type ReviewPhase = 'browse' | 'confirm';
 
-/** The resolved-access value the shared {@link AccessToken} projects for a row. */
+// The resolved-access value the shared {@link AccessToken} projects for a row.
 const rowEffective = (row: ReviewMatrixRow): EffectiveAccess => ({
   member: true, // the matrix lists in-scope chats only
   bits: row.bits,
@@ -71,7 +71,6 @@ export const ReviewScreen: FC<ReviewScreenViewProps> = ({
       return;
     }
 
-    // --- confirm phase: type the endpoint name (recoverable on mismatch) ---
     if (key.escape) {
       // Back out of the gate to the audit (Esc precedence: close overlay first).
       setPhase('browse');

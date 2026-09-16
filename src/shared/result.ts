@@ -1,8 +1,5 @@
-/**
- * Result — explicit success/failure without throwing. Domain & application code
- * returns `Result` for EXPECTED outcomes (e.g. an ACL denial); throwing is
- * reserved for programmer errors / truly exceptional conditions.
- */
+// Expected outcomes (an ACL denial) travel as `Result`; throwing is reserved for programmer
+// errors.
 
 export interface Ok<T> {
   readonly ok: true;
@@ -23,7 +20,7 @@ export const isOk = <T, E>(r: Result<T, E>): r is Ok<T> => r.ok;
 
 export const isErr = <T, E>(r: Result<T, E>): r is Err<E> => !r.ok;
 
-/** Unwrap the value or throw — ONLY for call sites that have already proven success. */
+// ONLY for call sites that have already proven success.
 export const unwrap = <T, E>(r: Result<T, E>): T => {
   if (r.ok) {
     return r.value;

@@ -1,24 +1,7 @@
 /**
- * Config <-> picker FOLDER PROJECTION round-trip — pins the folder-as-scope-unit
- * seam of the lossless mapper (the axis the flat chat-only tests don't exercise):
- *
- *  - folder-as-scope -> `folders[]`: a folder picked AS A UNIT projects to a
- *    config `folders[]` ref (canonical id form) and its member chats are NOT
- *    re-listed in `chats[]` (de-duped / covered).
- *  - drilled-in chats -> `chats[]` / `chatOverrides[]`: folder children picked
- *    INDIVIDUALLY (no folder scope) project as standalone chats, carrying any
- *    per-chat override.
- *  - LOSSLESS incl. hand-authored ref preservation: a mixed hand-written scope
- *    (folder + individual chats + a folder-covered override) round-trips
- *    field-for-field, and a hand-authored `@username` ref is never clobbered to
- *    a numeric id.
- *  - re-hydrate pre-checks FOLDERS **and** CHATS: hydrating a mixed scope
- *    pre-marks `folderScope`, pre-checks both folder-member and individually
- *    listed chats, and pre-sets overrides — while an unresolvable folder ref is
- *    fail-closed (default-deny), not a phantom scope.
- *
- * Drives the PURE mapper directly (no Ink/React). Lives with the infra suite as
- * the end-to-end config<->picker contract check for folder membership.
+ * The folder-as-scope-unit seam of the lossless mapper: a folder picked as a unit projects to a
+ * config `folders[]` ref in canonical id form and its member chats are not re-listed in
+ * `chats[]`, while drilled-in children project individually.
  */
 import { describe, it, expect } from 'vitest';
 
@@ -39,9 +22,11 @@ const idRef = (raw: string): PeerRef =>
 const userRef = (name: string): PeerRef => ({ kind: 'username', username: name });
 const ME: PeerRef = { kind: 'me' };
 
-// A live enumeration mixing every chat-ref FORM (me / id / username) across two
-// folders. `childChatKeys` are canonical id `ChatKey`s (as `dialogFilterChatKeys`
-// emits), so a username-referenced chat still joins its folder by its id key '20'.
+/**
+ * A live enumeration mixing every chat-ref FORM (me / id / username) across two folders.
+ * `childChatKeys` are canonical id `ChatKey`s (as `dialogFilterChatKeys` emits), so a
+ * username-referenced chat still joins its folder by its id key '20'.
+ */
 const enumeration: PickerEnumeration = {
   chats: [
     { chatKey: 'me', ref: ME, title: 'Saved Messages' },
@@ -62,9 +47,11 @@ const scope = (over: Partial<ValidatedScope> = {}): ValidatedScope => ({
   ...over,
 });
 
-// The verb TIERS each access bit expands to on projection (read = passive + media
-// egress; write = the full write tier). A hand-authored narrower set collapses to the
-// tier on a picker round-trip (the 2-bit model's documented contract).
+/**
+ * The verb TIERS each access bit expands to on projection (read = passive + media egress; write
+ * = the full write tier). A hand-authored narrower set collapses to the tier on a picker
+ * round-trip (the 2-bit model's documented contract).
+ */
 const R_TIER = ['read', 'read_media'];
 const W_TIER = ['send', 'draft', 'delete', 'mark_read', 'forward', 'react'];
 const RW_TIER = [...R_TIER, ...W_TIER];
@@ -99,9 +86,11 @@ describe('folder-as-scope-unit -> folders[]', () => {
   });
 
   it('preserves a scoped folder whose live membership is not enumerated (empty childChatKeys) — no silent drop', () => {
-    // Folder 5 exists in config scope but, at edit time, none of its members are
-    // in the enumerated dialog list (archived / not returned by getDialogs). The
-    // config-authored `folders: [5]` ref must survive an untouched-edit re-save.
+    /**
+     * Folder 5 exists in config scope but, at edit time, none of its members are in the
+     * enumerated dialog list (archived / not returned by getDialogs). The config-authored
+     * `folders: [5]` ref must survive an untouched-edit re-save.
+     */
     const emptyEnum: PickerEnumeration = {
       chats: enumeration.chats,
       folders: [{ id: 5, title: 'Work', childChatKeys: [] }],
@@ -128,9 +117,11 @@ describe('folder-as-scope-unit -> folders[]', () => {
       { kind: 'id', id: 8 },
     ]);
     expect(projected.chats).toEqual([]);
-    // The projected group verbs are the CANONICAL read-only default; the writable
-    // group access hydrated into explicit rw bits, so every folder member
-    // re-emits as a per-chat override (tier-stable, not byte-identical).
+    /**
+     * The projected group verbs are the CANONICAL read-only default; the writable group access
+     * hydrated into explicit rw bits, so every folder member re-emits as a per-chat override
+     * (tier-stable, not byte-identical).
+     */
     expect(projected.groupVerbs).toEqual(R_TIER);
     expect(projected.chatOverrides).toEqual([
       { peer: idRef('10'), verbs: RW_TIER },

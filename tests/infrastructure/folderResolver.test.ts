@@ -1,24 +1,8 @@
 /**
- * DialogFilterFolderResolver — security-focused unit tests for the FOLDER
- * differentiator (#5) and the SCOPED-CLIENT INVARIANT (#1).
- *
- * What we pin down here, against the published contracts (no real network):
- *  - FOLDER -> peer resolution: a dialog filter contributes pinned ∪ included
- *    peers, MINUS excluded peers, mapped to OUR canonical `ChatId` space;
- *    `InputPeerSelf` resolves to the account id (once), `InputPeerEmpty` and
- *    unknown peers contribute nothing.
- *  - LANGUAGE FOR ARGS: username/`me` chat refs are resolved INSIDE the data
- *    layer (via the loaned client), never the schema layer; a pure `id` scope
- *    issues no MTProto request (the invariant stays cheap).
- *  - FAIL-CLOSED: a scope resolving to zero peers is rejected (never allow-all),
- *    and a folder/username that cannot be resolved is a hard error (a typo must
- *    not silently narrow a scope to nothing).
- *  - NO CACHE: every resolve re-resolves afresh; failures are never sticky.
- *  - Encapsulation: GramJS errors (incl. FLOOD_WAIT) are mapped to `AppError`
- *    and never escape the adapter.
- *
- * Ports are faked; GramJS `Api` objects are constructed for real so the mapping
- * arithmetic (`InputPeer` -> canonical bigint) is exercised end-to-end.
+ * Security-focused tests for the folder differentiator and the scoped-client invariant, against
+ * the published contracts with no network: a dialog filter contributes pinned ∪ included peers
+ * minus excluded ones, mapped into our canonical `ChatId` space, with `InputPeerSelf` resolved
+ * once.
  */
 import { describe, it, expect } from 'vitest';
 import { Api, errors, helpers } from 'telegram';
@@ -45,18 +29,22 @@ import {
   type DialogFilterClientProvider,
 } from '../../src/infrastructure/telegram/DialogFilterFolderResolver.js';
 
-// --------------------------------------------------------------------------
-// Canonical ("marked") id arithmetic — mirrors telegram-peer-id.ts so the test
-// states the expected identity independently of the implementation under test.
-// --------------------------------------------------------------------------
+/**
+ * -------------------------------------------------------------------------- Canonical
+ * ("marked") id arithmetic — mirrors telegram-peer-id.ts so the test states the expected
+ * identity independently of the implementation under test.
+ * --------------------------------------------------------------------------
+ */
 const CHANNEL_ID_MARK = -1_000_000_000_000n;
 const userCanonical = (id: string): bigint => BigInt(id);
 const basicGroupCanonical = (id: string): bigint => -BigInt(id);
 const channelCanonical = (id: string): bigint => CHANNEL_ID_MARK - BigInt(id);
 
-// --------------------------------------------------------------------------
-// GramJS Api builders (real objects — exercise the real `className` discriminant)
-// --------------------------------------------------------------------------
+/**
+ * -------------------------------------------------------------------------- GramJS Api
+ * builders (real objects — exercise the real `className` discriminant)
+ * --------------------------------------------------------------------------
+ */
 const inputUser = (id: string): Api.TypeInputPeer =>
   new Api.InputPeerUser({
     userId: helpers.returnBigInt(id),
@@ -92,9 +80,6 @@ const dialogFilter = (config: {
 
 const defaultFilter = (): Api.TypeDialogFilter => new Api.DialogFilterDefault();
 
-// --------------------------------------------------------------------------
-// Domain builders
-// --------------------------------------------------------------------------
 const session = (name = 'primary'): SessionRefValue =>
   unwrap(SessionRef.create(name));
 const SESSION = session();
@@ -114,16 +99,13 @@ const scopeOf = (
   folders: readonly FolderRef[],
 ): Scope => Scope.create(chats, folders);
 
-// --------------------------------------------------------------------------
-// Port fakes
-// --------------------------------------------------------------------------
 interface FakeClientConfig {
   readonly filters?: readonly Api.TypeDialogFilter[];
-  /** Maps the exact `getPeerId` argument (e.g. 'me', '@name') to a canonical id string. */
+  // Maps the exact `getPeerId` argument (e.g. 'me', '@name') to a canonical id string.
   readonly peerIds?: Readonly<Record<string, string>>;
-  /** Errors thrown by successive `invoke` calls (FIFO); exhausting the queue succeeds. */
+  // Errors thrown by successive `invoke` calls (FIFO); exhausting the queue succeeds.
   readonly invokeErrors?: readonly Error[];
-  /** Errors thrown by `getPeerId` for a given argument. */
+  // Errors thrown by `getPeerId` for a given argument.
   readonly getPeerIdErrors?: Readonly<Record<string, Error>>;
 }
 
@@ -174,7 +156,7 @@ class FakeDialogFilterClient implements DialogFilterClient {
     return Promise.resolve(id);
   }
 
-  /** How many times `getPeerId` was asked to resolve a particular argument. */
+  // How many times `getPeerId` was asked to resolve a particular argument.
   public peerIdCallCount(peer: string): number {
     return this.getPeerIdCalls.filter((call) => call.peer === peer).length;
   }
@@ -196,9 +178,6 @@ class FakeProvider implements DialogFilterClientProvider {
   }
 }
 
-// --------------------------------------------------------------------------
-// Harness + assertions
-// --------------------------------------------------------------------------
 interface Harness {
   readonly resolver: DialogFilterFolderResolver;
   readonly provider: FakeProvider;
@@ -212,7 +191,7 @@ const makeHarness = (clientConfig: FakeClientConfig): Harness => {
   return { resolver, provider, client };
 };
 
-/** A canonical id that no test ever places in scope — proves "allow-list, not allow-all". */
+// A canonical id that no test ever places in scope — proves "allow-list, not allow-all".
 const OUT_OF_SCOPE_ID = unwrap(ChatId.create(-987_654_321n));
 
 const sortedKeys = (ids: readonly bigint[]): readonly string[] =>
@@ -234,7 +213,7 @@ const expectErr = (result: Result<ResolvedAccess, AppError>): AppError => {
   return result.error;
 };
 
-/** Assert the resolved allow-list is EXACTLY `expected` (membership both ways + fail-closed edge). */
+// Assert the resolved allow-list is EXACTLY `expected` (membership both ways + fail-closed edge).
 const expectScopeEquals = (
   scope: ResolvedScope,
   expected: readonly bigint[],
@@ -250,7 +229,6 @@ const expectScopeEquals = (
   expect(scope.contains(OUT_OF_SCOPE_ID)).toBe(false);
 };
 
-// ==========================================================================
 describe('DialogFilterFolderResolver', () => {
   describe('folder -> peer resolution (#5)', () => {
     it('resolves a folder to its pinned ∪ included peers as canonical ChatIds', async () => {

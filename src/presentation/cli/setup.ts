@@ -1,24 +1,16 @@
 /**
- * setup — the interactive onboarding entrypoint. A single menu flow: log in
- * (QR or phone-code, with SRP-only 2FA that is never persisted; the session is
- * encrypted at rest), enumerate the account's dialogs + folders by name,
- * create/edit/delete named endpoints (virtual groups), then write the config
- * and print a copy-paste MCP client-config block.
- *
- * ONE INK APP OWNS STDIN: every interaction — menus, text/secret entry, y/N
- * confirms, the access picker + review gate — is a screen of a single persistent
- * Ink app (`runSetupApp`) reached through the framework-free `SetupUi` port. No
- * readline and no second `render()` per prompt: two owners of process.stdin cause
- * the raw-mode-handoff bug. Ink/React load lazily on this TTY path so `connect`
- * never touches them.
- *
- * SECURITY: the login client is unscoped by necessity (the scope boundary does
- * not exist yet) — used to mint a session + read names, then disposed; never
- * handed to a tool or the server. PINs, 2FA passwords, and API hashes are not
- * logged; their prompts are masked, 2FA is discarded after SRP, and the API hash
- * is sealed with the session. A newly minted endpoint key is shown once in the
- * final client-config block. Prompts go to STDERR; only that block uses STDOUT,
- * after the alt-screen is restored so a piped STDOUT stays protocol-clean.
+ * The interactive onboarding entrypoint: log in by QR or phone code (SRP-only 2FA, never
+ * persisted), enumerate the account's dialogs and folders, create or edit named endpoints, then
+ * write the config and print a copy-paste MCP client block.
+ * ONE INK APP OWNS STDIN: every interaction — menus, text and secret entry, confirms, the
+ * access picker and review gate — is a screen of a single persistent Ink app reached through
+ * the framework-free `SetupUi` port. No readline and no second `render()` per prompt: two
+ * owners of process.stdin cause the raw-mode-handoff bug.
+ * SECURITY: the login client is unscoped by necessity (no scope boundary exists yet) — it mints
+ * a session, reads names, and is disposed; it is never handed to a tool or the server. PINs,
+ * 2FA passwords and API hashes are never logged, 2FA is discarded after SRP, and the API hash
+ * is sealed with the session. Prompts go to STDERR; only the final client-config block uses
+ * STDOUT, after the alt-screen is restored, so a piped STDOUT stays protocol-clean.
  */
 import { resolve } from 'node:path';
 
@@ -38,12 +30,10 @@ import { debugLog } from '../../infrastructure/setup-debug-log.js';
 import type {
   AccountChatDto,
   AccountFolderDto,
-  SessionSecurityAdmin,
   SessionKeySource,
 } from '../../application/index.js';
 import type { OperatorClientPort } from '../operator/client.js';
 import type { OperatorAccountDto, OperatorStatusDto } from '../operator/protocol.js';
-import { OperatorSessionSecurityAdmin } from '../operator/session-security-admin.js';
 import type { ValidatedConfig, ValidatedEndpoint } from '../../config/index.js';
 import {
   DEFAULT_CONFIRM_WRITES,
@@ -82,68 +72,52 @@ import type {
 export interface SetupOptions {
   readonly configPath: string;
   readonly sessionDir: string;
-  /**
-   * Optional pre-fill for the operator's Telegram app credentials. Setup acquires
-   * these interactively (api_hash masked); a valid env value is used as a default.
-   * Never required from the environment — that would leak the secret into shell history.
-   */
+  // A valid env value is only a default: credentials are never required from the environment,
+  // which would leak the secret into shell history.
   readonly apiId?: number;
   readonly apiHash?: string;
-  /** Out-of-band key material to encrypt the session at rest. */
   readonly sessionKey: SessionKeySource;
-  /** Daemon operator session used by production; injectable for setup tests. */
   readonly operatorClient: OperatorClientPort;
 }
 
 // Config draft — a plain editable model over the schema's NORMALISED types, so a
 // re-run round-trips the file losslessly (serialization lives in FileConfigRepository).
-
 interface ConfigDraft {
   disabledVerbs: PermissionVerb[];
-  /** Global download egress cap (bytes); carried verbatim so a save never drops it. */
+  // Carried verbatim so a save never drops it.
   maxDownloadBytes?: number;
   endpoints: EndpointDraft[];
 }
 
-/** Endpoint-edit result: the draft always reflects disk; policy state is explicit. */
 interface EditedConfig {
   readonly draft: ConfigDraft;
   readonly policyApplied: boolean;
 }
 
-/** One explicit endpoint commit. `false` means the draft write itself was rejected. */
+// One explicit endpoint commit. `false` means the draft write itself was rejected.
 type CommitDraft = (draft: ConfigDraft) => Promise<boolean>;
 
-/**
- * The at-rest unlock posture, derived from the slots a blob carries (never a
- * stored flag): SMOOTH = machine-bound (no operator secret); HARDENED = a
- * passphrase/recovery PIN with no machine slot.
- */
+// Derived from the slots a blob carries, never a stored flag: SMOOTH is machine-bound, HARDENED
+// is a passphrase or recovery PIN with no machine slot.
 type SessionPosture = 'smooth' | 'hardened';
 
-/** A first-run posture choice: the source to seal under + its derived mode. */
 interface SealDecision {
   readonly source: SessionKeySource;
   readonly posture: SessionPosture;
 }
 
-/** The outcome of a login + endpoint-editing pass, with the session's posture. */
 interface LoginResult {
   readonly draft: ConfigDraft;
   readonly sessionRef: string;
   readonly posture: SessionPosture;
-  /**
-   * The already-verified key source retained for the setup home-menu cache. For a
-   * first-run PIN this is the chosen PIN, so returning home does not prompt again.
-   */
+  // For a first-run PIN this is the chosen PIN, so returning home does not prompt again.
   readonly unlockSource: SessionKeySource;
 }
 
 /**
- * Deferred terminal output — accumulated during the flow and emitted only after
- * the Ink app unmounts (alt-screen restored), so it persists on the normal screen
- * instead of vanishing with the alt buffer. `stdout` is the copy-paste
- * client-config block (protocol surface); `stderr` is the human guidance.
+ * Accumulated during the flow and emitted only after the Ink app unmounts, so it persists on
+ * the normal screen instead of vanishing with the alt buffer. `stdout` carries the copy-paste
+ * client-config block, `stderr` the human guidance.
  */
 interface DeferredOutput {
   stdout: string;
@@ -152,11 +126,9 @@ interface DeferredOutput {
 
 // Wizard-shell choice menus — each a plain data model rendered by the reusable
 // arrow-nav `MenuScreen` (via `ui.menu`); the shell switches on the returned value.
-
 type LoggedOutChoice = 'login' | 'quit';
 type LoggedInChoice = 'configure' | 'accounts' | 'security' | 'quit';
 
-/** The session name/ref used when the operator does not name one. */
 const DEFAULT_SESSION_REF = 'main';
 
 // State-aware home menu: detect an existing session and offer login only when logged out.
@@ -185,10 +157,11 @@ const loggedInMenu = (
   { value: 'quit', label: 'Quit', hint: 'exit setup' },
 ];
 
-// The LOCKED home menu: a session file exists but no unlock channel is available
-// (a HARDENED app with no env PIN). Never claim "Logged in" nor offer the
-// session-dependent actions as usable — the only truthful choices are enter the
-// PIN, add/replace an account, or quit.
+/**
+ * The LOCKED home menu: a session file exists but no unlock channel is available. Never claim
+ * "Logged in" nor offer session-dependent actions — the only truthful choices are entering the
+ * PIN, adding an account, or quitting.
+ */
 type LockedChoice = 'unlock' | 'login' | 'quit';
 const LOCKED_MENU: readonly MenuOption<LockedChoice>[] = [
   { value: 'unlock', label: 'Enter PIN', hint: 'unlock the encrypted session to configure it' },
@@ -224,13 +197,10 @@ const SECURITY_MENU_OPTIONS: readonly MenuOption<SecurityChoice>[] = [
   { value: 'back', label: 'Back', hint: 'return to the main menu' },
 ];
 
-/** Prefix marking a dynamic "select this endpoint (by index)" menu row. */
 const ENDPOINT_ROW_PREFIX = 'endpoint:';
 
 // SetupUi prompt helpers — thin adapters over the discriminated `PromptResult` so
 // call sites read like a plain value, with each cancel mapped to the safe default.
-
-/** A free-text prompt; `undefined` when the operator cancels (Esc). */
 const promptText = async (
   ui: SetupUi,
   request: TextPromptRequest,
@@ -239,7 +209,6 @@ const promptText = async (
   return result.kind === 'submitted' ? result.value : undefined;
 };
 
-/** A masked secret prompt; `undefined` when the operator cancels (Esc). */
 const promptSecret = async (
   ui: SetupUi,
   request: PasswordPromptRequest,
@@ -248,7 +217,7 @@ const promptSecret = async (
   return result.kind === 'submitted' ? result.value : undefined;
 };
 
-/** A y/N confirm; a cancel (Esc) resolves to the prompt's own safe default. */
+// A y/N confirm; a cancel resolves to the prompt's own safe default.
 const promptConfirm = async (
   ui: SetupUi,
   request: ConfirmPromptRequest,
@@ -257,10 +226,7 @@ const promptConfirm = async (
   return result.kind === 'submitted' ? result.value : request.defaultValue;
 };
 
-/**
- * A defaulted free-text prompt (session/endpoint name): the pre-filled value is
- * accepted on empty submit or on cancel ("just press enter -> default").
- */
+// The pre-filled value is accepted on an empty submit or on cancel.
 const promptDefault = async (
   ui: SetupUi,
   title: string,
@@ -274,13 +240,8 @@ const promptDefault = async (
   return trimmed.length > 0 ? trimmed : fallback;
 };
 
-/**
- * The narrow `CredentialPromptConsole` the credential prompter needs, backed by
- * the Ink app: `print` shows an ephemeral one-liner; `ask`/`askSecret` route to
- * the text/masked fields with acquisition guidance rendered on the prompt screen.
- * The prompter keeps its own validate + re-prompt loop, so a cancel surfaces as an
- * empty string it rejects and re-prompts.
- */
+// The narrow console the credential prompter needs, backed by the Ink app. The prompter keeps
+// its own validate-and-re-prompt loop, so a cancel surfaces as an empty string it rejects.
 const credentialConsole = (ui: SetupUi): CredentialPromptConsole => ({
   print: (message = ''): void => {
     ui.notify(message);
@@ -309,21 +270,13 @@ const credentialConsole = (ui: SetupUi): CredentialPromptConsole => ({
   },
 });
 
-// ---------------------------------------------------------------------------
-// Small pure helpers
-// ---------------------------------------------------------------------------
-
 /**
- * Load the existing config.json as the editing baseline, through the config
- * repository's `loadValidated` — the exact bounded-read + schema/lint/domain
- * pipeline the daemon loads through (never a weaker gate that would let setup
- * adopt-and-resave a config the runtime then rejects). Only a MISSING file is a
- * first run (empty draft); an unreadable, malformed, or SCHEMA-INVALID one is
- * an ERROR the caller must stop on — editing would start from an empty (or
- * silently gutted) draft and the next autosave would overwrite the operator's
- * real config (endpoints, scopes, token hashes) with just the new edits.
- *
- * Exported for its unit test; not part of the public CLI surface.
+ * Loads config.json through the repository's `loadValidated` — the exact bounded-read, schema,
+ * lint and domain pipeline the daemon uses, never a weaker gate that would let setup adopt and
+ * re-save a config the runtime then rejects.
+ * Only a MISSING file is a first run. An unreadable, malformed or schema-invalid one is an
+ * error the caller must stop on: editing would start from an empty draft and the next autosave
+ * would overwrite the operator's real config with just the new edits.
  */
 const draftRepository = (configPath: string): FileConfigRepository =>
   new FileConfigRepository({
@@ -356,13 +309,10 @@ export const loadExistingDraft = async (
 };
 
 /**
- * Assemble the in-memory draft into the repository's `ValidatedConfig` shape.
- * NOT a second on-disk codec — serialization stays inside FileConfigRepository,
- * and `save()` re-validates the serialized form fail-closed (duplicate names,
- * empty scope, zero endpoints), so the nonempty-tuple cast below is enforced at
- * the write gate rather than trusted. Only the salted hash crosses over — the
- * plaintext key (`token`) is draft-only and NEVER part of the persisted shape
- * (it is shown once at mint + inlined into the exit `.mcp.json` block).
+ * Not a second on-disk codec — serialization stays inside FileConfigRepository, and `save()`
+ * re-validates the serialized form fail-closed, so the nonempty-tuple cast below is enforced at
+ * the write gate rather than trusted. Only the salted hash crosses over; the plaintext key is
+ * draft-only.
  */
 const draftToConfig = (draft: ConfigDraft): ValidatedConfig => ({
   version: 1,
@@ -388,7 +338,6 @@ const draftToConfig = (draft: ConfigDraft): ValidatedConfig => ({
 });
 
 // QR rendering — terminal QR + tg:// URL, with a PNG only when terminal rendering fails.
-
 const renderQr = async (
   ui: SetupUi,
   url: string,
@@ -411,26 +360,23 @@ const renderQr = async (
   });
 };
 
-// Posture (PIN) UX — first-run choice, secret entry, honest summaries.
-//
-// SECURITY: the seal posture is chosen interactively here, never inherited from
-// the model. HARDENED requires a confirmed, NFC-normalised passphrase of at least
-// MIN_PIN_LENGTH characters; SMOOTH derives the key from the host machine id, and
-// `normaliseId` fails closed on an empty/placeholder id (a cleared golden-image
-// machine-id) so a machine blob cannot bind to a non-identifying host.
-
+/**
+ * SECURITY: the seal posture is chosen interactively here, never inherited from the model.
+ * HARDENED requires a confirmed, NFC-normalised passphrase of at least MIN_PIN_LENGTH
+ * characters; SMOOTH derives the key from the host machine id, where `normaliseId` fails closed
+ * on a placeholder id, so a machine blob cannot bind to a non-identifying host.
+ */
 const MIN_PIN_LENGTH = 8;
 const MAX_PIN_ATTEMPTS = 3;
 
-/** True only when BOTH the input and the diagnostic stream are real terminals. */
+// True only when BOTH the input and the diagnostic stream are real terminals.
 const isInteractiveTty = (): boolean =>
   process.stdin.isTTY && process.stderr.isTTY;
 
 /**
- * The non-TTY / `--no-input` / CI branch: setup is interactive by contract, so
- * rather than block on stdin it prints the current config plus the equivalent flags
- * and exits non-zero. Secret-safe: the plan reads only the validated config (no
- * session string / token) and never echoes a secret.
+ * Setup is interactive by contract, so the non-TTY, `--no-input` and CI branch prints the
+ * current config plus the equivalent flags and exits non-zero. It reads only the validated
+ * config and never echoes a secret.
  */
 const printNonInteractivePlan = async (options: SetupOptions): Promise<void> => {
   const loaded = await draftRepository(options.configPath).loadValidated();
@@ -444,11 +390,9 @@ const printNonInteractivePlan = async (options: SetupOptions): Promise<void> => 
   );
 };
 
-/** Infer a session's posture from the source used to unlock it (machine = SMOOTH). */
 const inferPostureFromSource = (source: SessionKeySource): SessionPosture =>
   source.kind === 'machine' ? 'smooth' : 'hardened';
 
-/** Honest, non-marketing summary of the no-PIN (machine-bound) choice. */
 const printSmoothSummary = (ui: SetupUi): Promise<void> =>
   ui.notice({
     title: 'No PIN — day-to-day',
@@ -462,10 +406,8 @@ const printSmoothSummary = (ui: SetupUi): Promise<void> =>
     ],
   });
 
-/**
- * The post-creation operations notice: day-to-day how-to only. The commitment
- * itself was consented to on the decision and entry screens.
- */
+// Day-to-day how-to only: the commitment itself was consented to on the decision and entry
+// screens.
 const printInteractiveUnlockGuidance = (ui: SetupUi): Promise<void> =>
   ui.notice({
     title: 'PIN set — day-to-day',
@@ -479,7 +421,6 @@ const printInteractiveUnlockGuidance = (ui: SetupUi): Promise<void> =>
     ],
   });
 
-/** Prompt + confirm a new PIN/passphrase (NFC-normalised, min-length enforced). */
 const acquirePinSource = async (
   ui: SetupUi,
 ): Promise<SealDecision | undefined> => {
@@ -517,7 +458,7 @@ const acquirePinSource = async (
   return undefined;
 };
 
-/** Read an EXISTING PIN (no confirm/min-length) for an admin re-key operation. */
+// No confirm and no min-length check — this reads an existing secret.
 const askExistingPin = async (ui: SetupUi): Promise<SessionKeySource> => {
   const passphrase = await promptSecret(ui, {
     title: 'Current PIN/passphrase: ',
@@ -526,10 +467,7 @@ const askExistingPin = async (ui: SetupUi): Promise<SessionKeySource> => {
   return { kind: 'passphrase', passphrase: passphrase ?? '' };
 };
 
-/**
- * Authenticate this setup connection to a hardened daemon. The daemon is the
- * only verifier; setup never opens the encrypted repository itself.
- */
+// The daemon is the only verifier; setup never opens the encrypted repository itself.
 const authenticateHardenedOperator = async (
   ui: SetupUi,
   client: OperatorClientPort,
@@ -557,11 +495,8 @@ const authenticateHardenedOperator = async (
   return undefined;
 };
 
-/**
- * First-run posture choice: "Set a PIN?" (default no). Yes collects a PIN
- * (HARDENED); no selects SMOOTH (machine-bound) after an honest summary. Returns
- * `undefined` when the operator cancels PIN entry.
- */
+// Default no. Yes collects a PIN (HARDENED); no selects SMOOTH, machine-bound, after an honest
+// summary. Returns `undefined` when the operator cancels PIN entry.
 const choosePosture = async (
   ui: SetupUi,
 ): Promise<SealDecision | undefined> => {
@@ -583,23 +518,26 @@ const choosePosture = async (
   return { source: { kind: 'machine' }, posture: 'smooth' };
 };
 
-// Session security menu: setup calls a daemon-backed SessionAdmin port. One
-// PIN for the whole app (like native Telegram clients): each operation prompts once
-// and applies to all sessions on disk, regenerating the DEK and re-encrypting.
-// MCP tools never receive this write-side capability.
+/**
+ * One PIN for the whole app, like the native Telegram clients: each operation prompts once and
+ * applies to every session on disk, regenerating the DEK and re-encrypting. MCP tools never
+ * receive this write-side capability.
+ */
 
-/** Add the app PIN (SMOOTH -> HARDENED): unlock via the machine slot, seal under the PIN. */
-const doAddPin = async (ui: SetupUi, admin: SessionSecurityAdmin): Promise<boolean> => {
+// Add the app PIN (SMOOTH -> HARDENED): unlock via the machine slot, seal under the PIN.
+const doAddPin = async (ui: SetupUi, admin: OperatorClientPort): Promise<boolean> => {
   const decision = await acquirePinSource(ui);
   if (decision === undefined) {
     ui.notify('Add PIN cancelled.');
     return false;
   }
+  // The daemon carries this socket into the new authentication generation;
+  // no separate re-authentication is needed after the transition.
   const result = await ui.status('Updating encrypted data with the new PIN…', () =>
-    admin.addKek({ current: { kind: 'machine' }, pin: decision.source }),
+    admin.setPin({ kind: 'machine' }, decision.source),
   );
   if (isErr(result)) {
-    ui.notify(`Could not add PIN: ${result.error.message}`);
+    ui.notify(`Could not add PIN: ${result.error}`);
     return false;
   }
   ui.notify('PIN set — the app is now HARDENED (machine binding removed).');
@@ -607,8 +545,8 @@ const doAddPin = async (ui: SetupUi, admin: SessionSecurityAdmin): Promise<boole
   return true;
 };
 
-/** Change the app PIN (HARDENED -> HARDENED): unlock via the current PIN, re-key. */
-const doChangePin = async (ui: SetupUi, admin: SessionSecurityAdmin): Promise<boolean> => {
+// Change the app PIN (HARDENED -> HARDENED): unlock via the current PIN, re-key.
+const doChangePin = async (ui: SetupUi, admin: OperatorClientPort): Promise<boolean> => {
   const current = await askExistingPin(ui);
   const decision = await acquirePinSource(ui);
   if (decision === undefined) {
@@ -616,10 +554,10 @@ const doChangePin = async (ui: SetupUi, admin: SessionSecurityAdmin): Promise<bo
     return false;
   }
   const result = await ui.status('Re-keying the app…', () =>
-    admin.rewrapKek({ current, replacement: decision.source }),
+    admin.changePin(current, decision.source),
   );
   if (isErr(result)) {
-    ui.notify(`Could not change PIN: ${result.error.message}`);
+    ui.notify(`Could not change PIN: ${result.error}`);
     return false;
   }
   ui.notify('PIN changed.');
@@ -627,17 +565,17 @@ const doChangePin = async (ui: SetupUi, admin: SessionSecurityAdmin): Promise<bo
   return true;
 };
 
-/** Remove the app PIN (HARDENED -> SMOOTH): encrypt every blob machine-bound. */
+// Remove the app PIN (HARDENED -> SMOOTH): encrypt every blob machine-bound.
 const doRemovePin = async (
   ui: SetupUi,
-  admin: SessionSecurityAdmin,
+  admin: OperatorClientPort,
 ): Promise<boolean> => {
   const current = await askExistingPin(ui);
   const result = await ui.status('Updating encrypted data for this machine…', () =>
-    admin.removeKek({ current }),
+    admin.removePin(current),
   );
   if (isErr(result)) {
-    ui.notify(`Could not remove PIN: ${result.error.message}`);
+    ui.notify(`Could not remove PIN: ${result.error}`);
     return false;
   }
   ui.notify('PIN removed — the app is now SMOOTH (machine-bound).');
@@ -645,8 +583,8 @@ const doRemovePin = async (
   return true;
 };
 
-/** Export a recovery key for blobs present now (stays HARDENED). */
-const doExportRecovery = async (ui: SetupUi, admin: SessionSecurityAdmin): Promise<void> => {
+// Export a recovery key for blobs present now (stays HARDENED).
+const doExportRecovery = async (ui: SetupUi, admin: OperatorClientPort): Promise<void> => {
   const current = await askExistingPin(ui);
   const outputPath = await promptText(ui, {
     title: 'Path to write the recovery keyfile (created 0600): ',
@@ -656,10 +594,10 @@ const doExportRecovery = async (ui: SetupUi, admin: SessionSecurityAdmin): Promi
     return;
   }
   const result = await ui.status('Writing recovery keyfile…', () =>
-    admin.emitRecoveryKeyfile({ current, outputPath }),
+    admin.exportRecovery(current, outputPath),
   );
   if (isErr(result)) {
-    ui.notify(`Could not export recovery keyfile: ${result.error.message}`);
+    ui.notify(`Could not export recovery keyfile: ${result.error}`);
     return;
   }
   await ui.notice({
@@ -680,15 +618,13 @@ const accountLabel = (account: OperatorAccountDto): string =>
     : `session '${account.sessionRef}'`;
 
 /**
- * Top-level PIN lifecycle menu. The sessions on disk are the ground truth, and each
- * operation applies to all of them. All mutations go through the SessionAdmin port;
- * the unlock `current` is gathered interactively (never from the environment), so
- * the menu works regardless of how the daemon was unlocked.
+ * The sessions on disk are the ground truth and each operation applies to all of them. The
+ * unlock `current` is gathered interactively, never from the environment, so the menu works
+ * regardless of how the daemon was unlocked.
  */
 const runSecurityMenu = async (
   ui: SetupUi,
   options: SetupOptions,
-  admin: SessionSecurityAdmin,
   accounts: readonly OperatorAccountDto[],
 ): Promise<boolean> => {
   const client = options.operatorClient;
@@ -705,9 +641,8 @@ const runSecurityMenu = async (
   let managing = true;
   let invalidatedUnlock = false;
   while (managing) {
-    // Posture-gated options (truthful, not a static list): "Add PIN" only on a
-    // SMOOTH app; Change/Remove/Export only on a HARDENED one. Re-read posture each
-    // loop so add/remove (which flip it) stay honest. Apply + Back are always valid.
+    // Posture-gated and re-read each loop so add and remove stay honest: "Add PIN" only on a
+    // SMOOTH app, Change, Remove and Export only on a HARDENED one.
     const status = await client.status();
     if (isErr(status)) {
       ui.notify(`Could not read session security: ${status.error}.`);
@@ -732,17 +667,17 @@ const runSecurityMenu = async (
     const choice = result.kind === 'selected' ? result.value : 'back';
     switch (choice) {
       case 'add':
-        invalidatedUnlock = (await doAddPin(ui, admin)) || invalidatedUnlock;
+        invalidatedUnlock = (await doAddPin(ui, client)) || invalidatedUnlock;
         break;
       case 'change':
-        invalidatedUnlock = (await doChangePin(ui, admin)) || invalidatedUnlock;
+        invalidatedUnlock = (await doChangePin(ui, client)) || invalidatedUnlock;
         break;
       case 'remove':
         invalidatedUnlock =
-          (await doRemovePin(ui, admin)) || invalidatedUnlock;
+          (await doRemovePin(ui, client)) || invalidatedUnlock;
         break;
       case 'export':
-        await doExportRecovery(ui, admin);
+        await doExportRecovery(ui, client);
         break;
       case 'apply': {
         // Applying rides the app-key unlock: a hardened app needs the current PIN;
@@ -759,10 +694,6 @@ const runSecurityMenu = async (
   }
   return invalidatedUnlock;
 };
-
-// ---------------------------------------------------------------------------
-// Login phase
-// ---------------------------------------------------------------------------
 
 const doLogin = async (
   ui: SetupUi,
@@ -912,10 +843,6 @@ const doLogin = async (
   };
 };
 
-// ---------------------------------------------------------------------------
-// Enumerate + edit phase
-// ---------------------------------------------------------------------------
-
 const editEnumeratedAccount = async (
   ui: SetupUi,
   options: SetupOptions,
@@ -927,10 +854,11 @@ const editEnumeratedAccount = async (
     `Found ${String(chats.length)} dialog(s) and ${String(folders.length)} folder(s).`,
   );
 
-  // config.json is the crash-safe editable draft. Each explicit endpoint save
-  // writes it first, then publishes the same validated document to the sealed
-  // runtime policy. An unreadable/malformed draft STOPS here — editing from an
-  // empty baseline would clobber it on autosave.
+  /**
+   * config.json is the crash-safe editable draft: each explicit save writes it first, then
+   * publishes the same validated document to the sealed policy. An unreadable or malformed
+   * draft STOPS here — editing from an empty baseline would clobber it on autosave.
+   */
   const draftRes = await loadExistingDraft(options.configPath);
   if (isErr(draftRes)) {
     ui.notify(`Cannot edit endpoints: ${draftRes.error}`);
@@ -941,10 +869,11 @@ const editEnumeratedAccount = async (
   const commitDraft: CommitDraft = async (current): Promise<boolean> => {
     const raw = await persistDraft(ui, options, current);
     if (raw === undefined) return false;
-    // The operator connection was authenticated before account enumeration.
-    // A policy failure cannot undo an already-atomic draft write. A teardown
-    // failure can also arrive after publication, so report uncertainty rather
-    // than claiming that the saved policy is definitely inactive.
+    /**
+     * A policy failure cannot undo an already-atomic draft write, and a teardown failure can
+     * arrive after publication — so report uncertainty rather than claiming the saved policy is
+     * definitely inactive.
+     */
     policyApplied = await applySavedConfig(ui, options.operatorClient, raw);
     if (!policyApplied) {
       ui.notify(
@@ -957,10 +886,7 @@ const editEnumeratedAccount = async (
   return { draft, policyApplied };
 };
 
-/**
- * Shared snapshot→edit tail: enumerate the account's dialogs and folders
- * (spinner, error notify) and run the endpoint editor over them.
- */
+// Enumerate the account's dialogs and folders, then run the endpoint editor over them.
 const snapshotAndEdit = async (
   ui: SetupUi,
   options: SetupOptions,
@@ -992,11 +918,12 @@ const editLoop = async (
 ): Promise<void> => {
   let editing = true;
   while (editing) {
-    // Only the ACTIVE account's endpoints are editable rows: the chat enumeration
-    // behind the picker is for the active account only, so committing an edit to an
-    // endpoint bound to another session would silently replace its scope with this
-    // account's picks (a data-loss footgun). Other-account endpoints stay in the
-    // draft untouched; switch accounts to edit them.
+    /**
+     * Only the ACTIVE account's endpoints are editable rows: the chat enumeration behind the
+     * picker covers this account only, so committing an edit to an endpoint bound to another
+     * session would silently replace its scope with this account's picks. Other-account
+     * endpoints stay in the draft untouched.
+     */
     const editable = draft.endpoints
       .map((ep, i) => ({ ep, i }))
       .filter(({ ep }) => ep.session === sessionRef);
@@ -1061,10 +988,9 @@ const editLoop = async (
 };
 
 /**
- * Open the hub-and-spoke editor for one selected endpoint. Each completed spoke
- * commits through the injected save-and-publish boundary. A rejected draft write
- * (for example, a duplicate name) restores the previous in-memory value; a saved
- * draft remains saved even when publication fails, ready for an explicit retry.
+ * Each completed spoke commits through the injected save-and-publish boundary. A rejected draft
+ * write restores the previous in-memory value; a saved draft stays saved even when publication
+ * fails, ready for an explicit retry.
  */
 const editSelectedEndpoint = async (
   ui: SetupUi,
@@ -1097,9 +1023,8 @@ const editSelectedEndpoint = async (
       draft.endpoints.splice(idx, 1);
       const ok = await commitDraft(draft);
       if (!ok && removed !== undefined) {
-        // The write was rejected — e.g. deleting the last endpoint (the schema
-        // requires >=1). Restore the endpoint so the in-memory draft never drifts
-        // ahead of disk, and it stays served/listed.
+        // The write was rejected — deleting the last endpoint, say, which the schema forbids.
+        // Restore it so the in-memory draft never drifts ahead of disk.
         draft.endpoints.splice(idx, 0, removed);
       }
     },
@@ -1107,11 +1032,9 @@ const editSelectedEndpoint = async (
 };
 
 /**
- * Create one endpoint via the linear first-run wizard (the "add" path; editing an
- * existing endpoint goes through the hub in {@link editSelectedEndpoint}). Reuses
- * the same shared field editors as the edit hub: name -> access picker -> mint API
- * key. The caller persists and publishes the result before showing the key. Returns
- * `undefined` when the operator backs out of the access picker.
+ * The linear first-run create path; editing an existing endpoint goes through the hub instead.
+ * Reuses the same field editors — name, access picker, mint API key — and the caller persists
+ * and publishes before the key is shown.
  */
 const editEndpoint = async (
   ui: SetupUi,
@@ -1144,16 +1067,8 @@ const editEndpoint = async (
   };
 };
 
-// ---------------------------------------------------------------------------
-// Save + client-config output
-// ---------------------------------------------------------------------------
-
-/**
- * Autosave primitive: validate + atomically write the current draft, with a
- * transient "Saving…" status and notes only on failure. Returns the exact bytes
- * written, so the caller can publish the committed document without a second disk
- * read or a hand-edit race.
- */
+// Returns the exact bytes written, so the caller can publish the committed document without a
+// second disk read or a hand-edit race.
 const persistDraft = async (
   ui: SetupUi,
   options: SetupOptions,
@@ -1191,7 +1106,6 @@ const authenticateOperator = async (
   return true;
 };
 
-/** Publish exact config bytes over an authenticated operator connection. */
 const applySavedConfig = async (
   ui: SetupUi,
   client: OperatorClientPort,
@@ -1209,13 +1123,10 @@ const applySavedConfig = async (
 };
 
 /**
- * Apply the config draft to the sealed policy: after config.json is written,
- * validate + seal it under the operator's unlock secret. This is what makes
- * a bare text-editor edit take effect — endpoint-editor saves use the authenticated
- * helper directly, while this public action first authenticates. The runtime trusts
- * the sealed policy, never an unapplied text edit.
- *
- * Exported for the setup-level trigger test; not part of the public CLI surface.
+ * After config.json is written, validate and seal it under the operator's unlock secret — this
+ * is what makes a bare text-editor edit take effect. Endpoint-editor saves use the
+ * authenticated helper directly, while this public action authenticates first. The runtime
+ * trusts the sealed policy, never an unapplied text edit.
  */
 export const applyConfigDraft = async (
   ui: SetupUi,
@@ -1237,14 +1148,11 @@ export const applyConfigDraft = async (
 };
 
 /**
- * Build the exit summary: one copy-paste config block PER endpoint minted this run
- * (STDERR, human), plus — only when STDOUT is piped — a parseable bundle of those
- * same fresh entries (machine). Emitted after the alt-screen restores.
- *
- * SECURITY: api_id/api_hash are sealed into the session at setup (the daemon reads them
- * from the blob), so they are never inlined here. SMOOTH endpoints carry no session
- * secret. HARDENED endpoints reference only a 0600 *_PASSPHRASE_FILE path (never the
- * PIN itself, never a secret in argv). The JSON block is the only thing on STDOUT.
+ * One copy-paste config block per endpoint minted this run on STDERR, plus a parseable bundle
+ * of the same fresh entries when STDOUT is piped. Emitted after the alt-screen restores.
+ * SECURITY: api_id and api_hash are sealed into the session at setup, so they are never inlined
+ * here; HARDENED endpoints reference only a 0600 passphrase-file path, never the PIN itself and
+ * never a secret in argv.
  */
 const buildClientConfigOutput = (
   options: SetupOptions,
@@ -1255,21 +1163,21 @@ const buildClientConfigOutput = (
       ? result.posture
       : inferPostureFromSource(options.sessionKey);
 
-  // Only endpoints whose key was minted THIS run are actionable: their block carries
-  // the real key. Earlier endpoints' keys are not stored, so printing their config
-  // would be dead JSON — they are listed by name instead. One block per endpoint,
-  // never a union bundle on screen: the one-endpoint-per-client boundary is enforced
-  // by structure, not by a warning.
+  /**
+   * Only endpoints whose key was minted THIS run carry a real key; earlier ones are listed by
+   * name, since their keys are not stored. One block per endpoint, never a union bundle — the
+   * one-endpoint-per-client boundary is enforced by structure, not by a warning.
+   */
   const fresh: { readonly name: string; readonly server: Record<string, unknown> }[] =
     [];
   const existing: string[] = [];
   let anyHardened = false;
   for (const ep of result.draft.endpoints) {
-    // Token-only block: the API key alone selects and authorizes the endpoint
-    // (tokenHash is schema-required, so every endpoint carries one); paths appear
-    // only when the operator overrode the central ~/.secure-telegram-mcp home
-    // (docker/CI). Absolute paths when present (clients spawn `connect` from
-    // their own cwd).
+    /**
+     * The API key alone selects and authorizes the endpoint. Paths appear only when the
+     * operator overrode the central home, and are absolute, since clients spawn `connect` from
+     * their own cwd.
+     */
     const env: Record<string, string> = {};
     if (resolve(options.configPath) !== resolve(defaultConfigPath())) {
       env['TELEGRAM_MCP_CONFIG'] = resolve(options.configPath);
@@ -1278,9 +1186,11 @@ const buildClientConfigOutput = (
       env['TELEGRAM_MCP_SESSION_DIR'] = resolve(options.sessionDir);
     }
     if (postureFor(ep.session) === 'hardened') {
-      // No passphrase-file env by default: the PIN is entered interactively via
-      // `npx secure-telegram-mcp start` (typed, never on disk). Headless operators can
-      // still set TELEGRAM_MCP_SESSION_PASSPHRASE_FILE themselves.
+      /**
+       * No passphrase-file env by default: the PIN is typed interactively via `npx
+       * secure-telegram-mcp start`. Headless operators can still set
+       * TELEGRAM_MCP_SESSION_PASSPHRASE_FILE themselves.
+       */
       anyHardened = true;
     }
     if (ep.token === undefined) {
@@ -1288,9 +1198,8 @@ const buildClientConfigOutput = (
       continue;
     }
     env[ENDPOINT_TOKEN_ENV] = ep.token;
-    // `connect` auto-starts the one local daemon and pipes stdio to it — safe for
-    // any number of simultaneous MCP clients (Telegram's auth key must have exactly
-    // one owner-process).
+    // `connect` auto-starts the one local daemon and pipes stdio to it, so any number of
+    // simultaneous MCP clients is safe.
     fresh.push({
       name: ep.name,
       server: {
@@ -1339,11 +1248,8 @@ const buildClientConfigOutput = (
   return { stdout, stderr: lines.join('\n') };
 };
 
-/**
- * Emit the client-config block for a completed pass. Overwrite (not append): the
- * main menu loops, so a second pass must replace the block, never emit two
- * concatenated JSON objects on STDOUT.
- */
+// Overwrite, not append: the main menu loops, so a second pass must replace the block rather
+// than emit two concatenated JSON objects on STDOUT.
 const emitClientConfig = (
   deferred: DeferredOutput,
   options: SetupOptions,
@@ -1354,10 +1260,6 @@ const emitClientConfig = (
   deferred.stderr = output.stderr;
   process.exitCode = 0;
 };
-
-// ---------------------------------------------------------------------------
-// Entrypoint
-// ---------------------------------------------------------------------------
 
 /**
  * The login + endpoint-editing + config-write + client-config-print pass. Returns
@@ -1372,9 +1274,11 @@ const runLoginAndConfigure = async (
   posture: OperatorStatusDto['posture'],
   knownSource?: SessionKeySource,
 ): Promise<SessionKeySource | undefined> => {
-  // Acquire the Telegram app credentials interactively (api_hash masked) — never
-  // `required()` from the environment (that leaks the secret into shell history).
-  // A valid env value is used as a pre-fill default.
+  /**
+   * Acquire the Telegram app credentials interactively (api_hash masked) — never `required()`
+   * from the environment (that leaks the secret into shell history). A valid env value is used
+   * as a pre-fill default.
+   */
   const prompter = new InteractiveCredentialPrompter(credentialConsole(ui));
   const creds = await prompter.acquire({
     apiId: options.apiId,
@@ -1429,17 +1333,15 @@ const configureExistingSession = async (
   emitClientConfig(deferred, options, result);
 };
 
-/** The Accounts submenu outcome: a context switch, an add, a logout, or back. */
+// The Accounts submenu outcome: a context switch, an add, a logout, or back.
 type AccountsOutcome =
   | { readonly kind: 'switch'; readonly ref: SessionRefValue }
   | { readonly kind: 'add' }
   | { readonly kind: 'logout' }
   | { readonly kind: 'back' };
 
-/**
- * The accounts switcher: list every authorized account with the active one marked,
- * switch on Enter, plus `Add account` and `Log out`.
- */
+// The accounts switcher: list every authorized account with the active one marked, switch on
+// Enter, plus `Add account` and `Log out`.
 const runAccountsMenu = async (
   ui: SetupUi,
   accounts: readonly OperatorAccountDto[],
@@ -1473,11 +1375,10 @@ const runAccountsMenu = async (
   return { kind: 'back' };
 };
 
-/** The wizard's state-aware main-menu loop, driven against the `SetupUi` port. */
+// The wizard's state-aware main-menu loop, driven against the `SetupUi` port.
 const runMainMenu = async (
   ui: SetupUi,
   options: SetupOptions,
-  admin: SessionSecurityAdmin,
   deferred: DeferredOutput,
 ): Promise<void> => {
   const operator = options.operatorClient;
@@ -1665,10 +1566,12 @@ const runMainMenu = async (
         break;
       }
       case 'security':
-        if (await runSecurityMenu(ui, options, admin, accounts)) {
-          // Add/Change/Remove PIN rewrites the app-key slots, so the cached unlock
-          // may no longer match the on-disk state. A plain Back, apply, export, or
-          // failed/cancelled mutation keeps the verified unlock.
+        if (await runSecurityMenu(ui, options, accounts)) {
+          /**
+           * Add/Change/Remove PIN rewrites the app-key slots, so the cached unlock may no
+           * longer match the on-disk state. A plain Back, apply, export, or failed/cancelled
+           * mutation keeps the verified unlock.
+           */
           clearUnlock();
         }
         break;
@@ -1682,27 +1585,30 @@ const runMainMenu = async (
 };
 
 export const runSetup = async (options: SetupOptions): Promise<void> => {
-  // isatty branch (once, at entry). A non-TTY must not block on stdin: it prints the
-  // current config + the equivalent flags and exits non-zero. A real terminal
-  // launches the single persistent Ink app that owns stdin end to end.
+  /**
+   * isatty branch (once, at entry). A non-TTY must not block on stdin: it prints the current
+   * config + the equivalent flags and exits non-zero. A real terminal launches the single
+   * persistent Ink app that owns stdin end to end.
+   */
   if (!isInteractiveTty()) {
     await printNonInteractivePlan(options);
     process.exitCode = 1;
     return;
   }
   const operator = options.operatorClient;
-  const admin: SessionSecurityAdmin = new OperatorSessionSecurityAdmin(operator);
 
-  // Accumulated during the flow, emitted only after the alt-screen is restored so
-  // the copy-paste block + guidance survive on the normal terminal (the alt buffer
-  // is discarded on unmount).
+  /**
+   * Accumulated during the flow, emitted only after the alt-screen is restored so the
+   * copy-paste block + guidance survive on the normal terminal (the alt buffer is discarded on
+   * unmount).
+   */
   const deferred: DeferredOutput = { stdout: '', stderr: '' };
 
   // Lazy-load the Ink app — reached only on this TTY path, so `connect` never loads Ink.
   const { runSetupApp } = await import('./ink/run-setup-app.js');
   try {
     await runSetupApp(async (ui: SetupUi) => {
-      await runMainMenu(ui, options, admin, deferred);
+      await runMainMenu(ui, options, deferred);
     });
   } catch {
     process.exit(1);

@@ -18,7 +18,7 @@ const REQUEST = {
   description: 'send one message',
 };
 
-/** A fake McpServer exposing only the elicitInput seam the confirmer uses. */
+// A fake McpServer exposing only the elicitInput seam the confirmer uses.
 const serverAnswering = (
   answer: unknown,
 ): McpServer =>

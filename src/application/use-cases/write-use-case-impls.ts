@@ -122,10 +122,8 @@ export const WRITE_SPECS = Object.freeze({
     run: (writer, input) => writer.forwardMessage(input),
   }),
 
-  /**
-   * Reaction — a lightweight WRITE (verb `react`) drawing the `messages` bucket,
-   * with the standard HITL + quota + audit ordering. A single in-scope target.
-   */
+  // Reaction — a lightweight WRITE (verb `react`) drawing the `messages` bucket, with the
+  // standard HITL + quota + audit ordering. A single in-scope target.
   sendReaction: writeSpec<SendReactionCommand, ReactionResultDto>({
     verb: PermissionVerb.React,
     bucket: 'messages',

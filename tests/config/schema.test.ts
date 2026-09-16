@@ -5,7 +5,7 @@ import { configSchema, lintConfig, hasLintErrors } from '../../src/config/index.
 import { ChatId, PeerRefFactory, type PeerRef } from '../../src/domain/index.js';
 import { unwrap } from '../../src/shared/result.js';
 
-/** Domain id ref — what the schema transforms emit for a numeric shorthand. */
+// Domain id ref — what the schema transforms emit for a numeric shorthand.
 const idRef = (raw: string): PeerRef =>
   PeerRefFactory.fromId(unwrap(ChatId.fromString(raw)));
 
@@ -57,10 +57,12 @@ describe('configSchema', () => {
   });
 
   it('the SHIPPED example config validates verbatim (copy-paste must never fail the schema)', () => {
-    // telegram-mcp.config.example.json is what the README points new users at;
-    // it must always satisfy the strict schema (including required tokenHash —
-    // its placeholder digests parse but match no real key, so a pasted example
-    // fails closed at the API-key gate rather than at config load).
+    /**
+     * telegram-mcp.config.example.json is what the README points new users at; it must always
+     * satisfy the strict schema (including required tokenHash — its placeholder digests parse
+     * but match no real key, so a pasted example fails closed at the API-key gate rather than
+     * at config load).
+     */
     const example: unknown = JSON.parse(
       readFileSync(
         join(__dirname, '..', '..', 'telegram-mcp.config.example.json'),
@@ -91,9 +93,11 @@ describe('configSchema', () => {
   });
 
   it('rejects a domain-invalid chat ref at the schema (factory validation runs in the transform)', () => {
-    // '@x' is valid shorthand grammar but too short for a real Telegram
-    // username; chat id 0 is never a valid peer. Both must fail the SCHEMA now
-    // that the transforms build refs through the domain factories.
+    /**
+     * '@x' is valid shorthand grammar but too short for a real Telegram username; chat id 0 is
+     * never a valid peer. Both must fail the SCHEMA now that the transforms build refs through
+     * the domain factories.
+     */
     for (const chat of ['@x', '0']) {
       const bad = {
         ...validConfig,

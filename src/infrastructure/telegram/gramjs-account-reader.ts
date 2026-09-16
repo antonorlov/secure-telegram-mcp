@@ -1,4 +1,4 @@
-/** Operator-only account enumeration over a daemon-owned Telegram connection. */
+// Operator-only account enumeration over a daemon-owned Telegram connection.
 import { Api, type TelegramClient } from 'telegram';
 import type { UnicodeSanitizer } from '../sanitize/unicode-sanitizer.js';
 

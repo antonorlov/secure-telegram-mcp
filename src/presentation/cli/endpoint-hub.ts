@@ -1,17 +1,7 @@
 /**
- * Endpoint edit hub — the hub-and-spoke controller for editing one existing endpoint. A
- * single menu that gives random access to each field, each row showing the current value via
- * its `hint` (the linear wizard stays only for first-run creation).
- *
- * Save model = immediate commit: every completed spoke persists and publishes through
- * the injected `apply`/`remove` callbacks before the hub re-renders with the new value.
- * `apply` returns `false` when the change was rejected (e.g. a rename that collides — caught
- * by the config schema's uniqueness rule); the hub then keeps the old value, so it can never
- * display an unsaved/invalid state.
- *
- * This controller depends only on the framework-free `SetupUi` port, the `EndpointDraft`
- * DTO, the shared field editors, and `MenuOption`. Persistence is entirely behind
- * `apply`/`remove` (the flow in setup.ts owns that commit transaction).
+ * The hub-and-spoke controller for editing one existing endpoint: a single menu with random
+ * access to each field, each row showing its current value through its `hint`. The linear
+ * wizard stays only for first-run creation.
  */
 import type {
   AccountChatDto,
@@ -34,28 +24,17 @@ import {
 
 export interface EndpointHubDeps {
   readonly ui: SetupUi;
-  /** The starting value of the selected endpoint. */
   readonly endpoint: EndpointDraft;
   readonly chats: readonly AccountChatDto[];
   readonly folders: readonly AccountFolderDto[];
-  /**
-   * Persist and publish the whole updated endpoint. Returns `false` when the draft
-   * write was rejected (schema-invalid, e.g. a duplicate name); the hub then keeps
-   * the previous value.
-   */
+  // Returns `false` when the draft write was rejected — a duplicate name, say — and the hub
+  // then keeps the previous value.
   readonly apply: (updated: EndpointDraft) => Promise<boolean>;
-  /** Persist and publish deletion of this endpoint, then exit the hub. */
   readonly remove: () => Promise<void>;
 }
 
-/**
- * The API-key spoke (hash-only config): the plaintext is never persisted (config keeps only
- * the salted hash). But a key minted this session is still held in memory (`cur.token`), so
- * we can show it here — a copyable preview. A reloaded endpoint has only the hash, so it is
- * regenerate-only. Regenerate is destructive (old key stops working), gated by a confirm; on
- * confirm it mints a fresh matched pair, re-applies (autosaves the new hash), and the loop
- * re-renders showing the new key. The key also rides out in the exit `.mcp.json` block.
- */
+// The config keeps only the salted hash, but a key minted this session is still held in memory,
+// so it can be previewed here. A reloaded endpoint has only the hash.
 const runApiKeySpoke = async (
   ui: SetupUi,
   current: EndpointDraft,
@@ -100,10 +79,8 @@ const runApiKeySpoke = async (
   }
 };
 
-/**
- * Drive the edit hub for one endpoint until the operator picks Back (or Esc/←,
- * which maps to Back, consistent with every other menu) or deletes it.
- */
+// Runs until the operator picks Back — Esc and ← map to Back, consistent with every other menu
+// — or deletes the endpoint.
 export const runEndpointHub = async (deps: EndpointHubDeps): Promise<void> => {
   const { ui } = deps;
   let current = deps.endpoint;

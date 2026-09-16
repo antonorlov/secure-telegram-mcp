@@ -41,9 +41,11 @@ describe('NoticeScreen — must-read block', () => {
   });
 
   it('CLEARS on dismiss — the block is not persisted above the next screen', () => {
-    // The must-read (here a shown-once API key) shows while its screen is up, then
-    // the flow replaces it with the next screen. Because the body is in the live
-    // region (not <Static>), it is WIPED — it must not linger stacked above.
+    /**
+     * The must-read (here a shown-once API key) shows while its screen is up, then the flow
+     * replaces it with the next screen. Because the body is in the live region (not <Static>),
+     * it is WIPED — it must not linger stacked above.
+     */
     const request = {
       title: "API key for 'reader' (shown ONCE)",
       body: ['  tgmcp_DO_NOT_LINGER_TOKEN', 'The config stores only its hash.'],

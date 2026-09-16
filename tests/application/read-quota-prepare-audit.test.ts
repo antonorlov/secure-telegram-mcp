@@ -1,13 +1,7 @@
 /**
- * 2026-07-08 fix-pass behaviours of the use-case templates:
- *  - READ-SIDE QUOTA (#3): search_messages draws from the `searches` bucket —
- *    one unit for a peered search, bounded worst-case fan-out units for an
- *    un-peered page — AFTER the ACL gate (a denied request spends nothing), and
- *    a refusal is audited as a DENY without reaching the reader.
- *  - PREPARE AUDIT (#4c): prepare_media appends an allow/deny audit record
- *    like every other write-tier op (no quota, no HITL, no raw path).
- *  - FORWARD HITL DESTINATION (LOW): a `username`/`me` forward destination
- *    reaches the confirmer as the RESOLVED canonical id, never as "no target".
+ * Read-side quota and prepare-audit: `search_messages` draws from the `searches` bucket AFTER
+ * the ACL gate, so a denied request spends nothing and is audited as a DENY, and
+ * `prepare_media` appends an audit record like every write.
  */
 import { describe, it, expect } from 'vitest';
 import { ok, err, unwrap } from '../../src/shared/result.js';
@@ -50,7 +44,7 @@ import {
 const IN_SCOPE_PEER = PeerRefFactory.fromId(IN_SCOPE);
 const HITL_ON = true;
 
-/** A 3-chat resolved scope so fan-out weighting is distinguishable from 1. */
+// A 3-chat resolved scope so fan-out weighting is distinguishable from 1.
 const threeChatScope = (): ResolvedScope =>
   unwrap(ResolvedScope.create([chatId(100n), chatId(101n), chatId(102n)]));
 

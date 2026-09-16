@@ -1,19 +1,8 @@
 /**
- * SOLE-GATE COMPLETENESS (the load-bearing guarantee once the menu is STATIC and
- * the AclGuardedScopedClient decorator is gone).
- *
- * The per-chat verb+scope+kill check inside the USE-CASE ENGINE
- * (resolve -> ACL -> audit) is now the ONLY application-layer gate. This
- * table-driven suite proves that guarantee is COMPLETE: EVERY core tool's
- * use-case denies both
- *   (a) an OUT-OF-VERB call — the tool's verb is daemon-denied (kill-switched) —
- *       and
- *   (b) an OUT-OF-SCOPE id peer,
- * fail-closed with AclDenied, with the scoped client's DATA method NEVER reached
- * (only peer resolution runs) — so no tool can act or return data without the
- * check.
- *
- * Synthetic ENGLISH fixtures + fake ids only.
+ * SOLE-GATE COMPLETENESS: with the menu static and the guarded-client decorator gone, the
+ * per-chat verb, scope and kill check inside the use-case engine is the only application-layer
+ * gate. This table-driven suite proves every core tool's use-case denies both an out-of-verb
+ * call and an out-of-scope target.
  */
 import { describe, it, expect } from 'vitest';
 import { ok } from '../../src/shared/index.js';
@@ -54,7 +43,7 @@ import {
   StubConfirmer,
 } from './_support.js';
 
-/** Every verb the core tools use (so out-of-verb is via the denied set). */
+// Every verb the core tools use (so out-of-verb is via the denied set).
 const CORE_VERBS: readonly PermissionVerb[] = [
   PermissionVerb.Read,
   PermissionVerb.ReadMedia,
@@ -85,11 +74,11 @@ const writeDeps = (): WriteUseCaseDeps => ({
 interface ToolProbe {
   readonly name: string;
   readonly verb: PermissionVerb;
-  /** Number of peer refs canonicalized before the ACL decision. */
+  // Number of peer refs canonicalized before the ACL decision.
   readonly resolvedPeers: number;
-  /** False for verb-only ops (no id peer): scope is enforced physically inner. */
+  // False for verb-only ops (no id peer): scope is enforced physically inner.
   readonly hasPeer: boolean;
-  /** Build the use-case and run it against the given context + peer. */
+  // Build the use-case and run it against the given context + peer.
   readonly run: (
     ctx: EndpointExecutionContext,
     peer: PeerRef,
@@ -140,7 +129,7 @@ const PROBES: readonly ToolProbe[] = [
 const resolveCalls = (count: number): string[] =>
   Array.from({ length: count }, () => 'resolvePeer');
 
-/** Context granting EVERY core verb, so ONLY the denied set / scope can deny. */
+// Context granting EVERY core verb, so ONLY the denied set / scope can deny.
 const ctxWith = (
   inner: SpyScopedClient,
   denied: ReadonlySet<PermissionVerb>,
@@ -188,9 +177,11 @@ describe('sole-gate completeness — every tool denies out-of-verb + out-of-scop
     const shipped = buildToolDefinitions(writeDeps())
       .map((definition) => definition.name)
       .sort();
-    // Mechanical closure both ways: specs <-> shipped catalogue <-> probes. A
-    // bespoke tool wired into the catalogue without a spec entry (or a spec
-    // entry never wired) breaks the first assertion; a probe gap breaks the second.
+    /**
+     * Mechanical closure both ways: specs <-> shipped catalogue <-> probes. A bespoke tool
+     * wired into the catalogue without a spec entry (or a spec entry never wired) breaks the
+     * first assertion; a probe gap breaks the second.
+     */
     expect(shipped).toEqual(fromSpecs);
     expect(PROBES.map((p) => p.name).sort()).toEqual(shipped);
   });

@@ -1,8 +1,5 @@
-/**
- * HelpOverlay — the grouped `?` cheat-sheet. Rendered from the binding table (same source as
- * dispatch + footer), bucketed by help group in a fixed order, so it documents the entire
- * keymap with zero hand-maintained drift.
- */
+// The grouped `?` cheat-sheet, rendered from the binding table — the same source as dispatch
+// and the footer — so it documents the keymap with no hand-maintained drift.
 import type { FC } from 'react';
 import { Box, Text } from 'ink';
 
@@ -23,9 +20,11 @@ export const HelpOverlay: FC<HelpOverlayProps & { readonly theme?: Theme }> = ({
   bindings,
   theme = defaultTheme,
 }) => (
-  // alignSelf keeps the border hugging the content instead of stretching to the
-  // terminal edge; groups flow as wrapping columns so the sheet stays compact on
-  // wide terminals and degrades to the old vertical stack on narrow ones.
+  /**
+   * alignSelf keeps the border hugging the content instead of stretching to the terminal edge;
+   * groups flow as wrapping columns, so the sheet stays compact on wide terminals and degrades
+   * to a vertical stack on narrow ones.
+   */
   <Box
     flexDirection="column"
     borderStyle="round"

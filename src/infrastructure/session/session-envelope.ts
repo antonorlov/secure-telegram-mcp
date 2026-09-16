@@ -1,21 +1,10 @@
 /**
- * Session-envelope FORMAT — the on-disk, self-describing encrypted-at-rest
- * representation of a sealed blob (a session, or the sealed policy). An
- * infrastructure detail: these types + type-guards NEVER leak across a port
- * boundary (the application sees only `SessionMaterial` / raw bytes). All binary
- * fields are base64.
- *
- * v2: a random DEK encrypts the PAYLOAD; the DEK is GCM-wrapped under one or more
- * per-slot KEKs (each derived from an operator channel via scrypt). A wrong
- * secret => the slot's GCM tag mismatches => clean fail; a tampered payload =>
- * the payload's GCM tag mismatches => clean fail. There is NO separate commit
- * MAC: each slot wrap and the payload are independently AES-256-GCM
- * authenticated, and anti-rollback is out of scope (a same-uid writer can restore
- * any older file).
- *
- * The codec ({@link SessionEnvelopeCodec}) at the bottom owns DEK generation,
- * per-slot wrap/unwrap, scrypt KEK derivation, and zeroize. Pure crypto/format:
- * NO file I/O, NO GramJS — the store owns persistence and secret acquisition.
+ * On-disk, self-describing encrypted-at-rest form of a sealed blob (a session, or the sealed
+ * policy). An infrastructure detail: these types never leak across a port boundary, and all
+ * binary fields are base64.
+ * v2: a random DEK encrypts the payload and is GCM-wrapped under one or more per-slot KEKs,
+ * each derived from an operator channel via scrypt. A wrong secret fails on the slot's GCM tag,
+ * a tampered payload on the payload's own tag — there is no separate commit MAC.
  */
 import {
   randomBytes,
@@ -32,67 +21,51 @@ import {
 } from '../../application/index.js';
 import { type Result, ok, err, isErr } from '../../shared/index.js';
 
-/** AES-256-GCM is the only authenticated cipher used at rest. */
+// AES-256-GCM is the only authenticated cipher used at rest.
 export const SESSION_ALGORITHM = 'aes-256-gcm' as const;
 export type SessionAlgorithm = typeof SESSION_ALGORITHM;
 
-/** scrypt cost parameters, persisted in the envelope so old files stay readable. */
+// scrypt cost, persisted in the envelope so old files stay readable after a change.
 export interface KdfParams {
   readonly N: number;
   readonly r: number;
   readonly p: number;
 }
 
-/** The sealed crown-jewel payload — api creds travel WITH the session atomically. */
+// The sealed crown jewels — api creds travel WITH the session, atomically.
 export interface SessionPayload {
-  /** The Telegram session string. */
   readonly session: string;
-  /** Telegram app api_id. */
   readonly apiId: number;
-  /** Telegram app api_hash. */
   readonly apiHash: string;
-  /**
-   * OPTIONAL human label (the account's Telegram display name), SEALED so the
-   * setup menu can show "Log out (<name>)" without a network call and without
-   * leaking the name as plaintext beside the ciphertext. Absent on older blobs.
-   */
+  // Sealed so the setup menu can show "Log out (<name>)" without a network call and without
+  // leaking the name in plaintext beside the ciphertext. Absent on older blobs.
   readonly label?: string;
 }
 
-/**
- * Which operator channel a slot's KEK is derived from. Every blob is sealed
- * DIRECTLY under the operator channels present: a passphrase (HARDENED), the
- * host machine id (SMOOTH), and/or an exported recovery keyfile.
- */
+// Every blob is sealed directly under the operator channels present: a passphrase (HARDENED),
+// the host machine id (SMOOTH), and/or an exported recovery keyfile.
 export type SlotKind = 'passphrase' | 'machine' | 'recovery';
 
-/**
- * One unlock slot: a GCM-wrap of the shared DEK under a KEK derived (scrypt)
- * from this slot's secret channel. Wrong secret => GCM tag mismatch => clean
- * fail (no separate verifier).
- */
+// A GCM-wrap of the shared DEK under this slot's scrypt KEK. A wrong secret is a tag mismatch,
+// so no separate verifier is needed.
 export interface Slot {
   readonly kind: SlotKind;
   readonly kdf: 'scrypt';
   readonly kdfParams: KdfParams;
-  /** 16-byte fresh random per-slot salt. */
   readonly salt: string;
   readonly iv: string;
   readonly authTag: string;
   readonly wrappedDek: string;
 }
 
-/** Current DEK-over-slots envelope. */
 export interface SessionEnvelopeV2 {
   readonly v: 2;
   readonly alg: SessionAlgorithm;
-  /** DEK-encrypted payload (AES-256-GCM, authenticated by its own tag). */
   readonly payload: {
     readonly iv: string;
     readonly authTag: string;
     readonly ciphertext: string;
   };
-  /** One or more unlock slots (>= 1). */
   readonly slots: readonly Slot[];
 }
 
@@ -126,11 +99,9 @@ export const isSlot = (u: unknown): u is Slot =>
   typeof u['wrappedDek'] === 'string';
 
 /**
- * Defense-in-depth cap on the slot count a v2 envelope may carry. A legitimate
- * blob needs at most a handful (a PIN slot + a recovery slot, with headroom); an
- * absurd count can only come from a tampered 0600 file trying to force a per-slot
- * scrypt-DoS at load. The guard FAILS CLOSED above this — such a blob is rejected
- * as malformed, never KDF-iterated.
+ * Defence-in-depth cap on slot count: a legitimate blob needs a handful, and an absurd count
+ * can only come from a tampered 0600 file trying to force a per-slot scrypt DoS at load. Fails
+ * closed above this — rejected as malformed, never KDF-iterated.
  */
 const MAX_SESSION_SLOTS = 8;
 
@@ -152,54 +123,37 @@ export const isSessionEnvelopeV2 = (u: unknown): u is SessionEnvelopeV2 =>
   u['slots'].length <= MAX_SESSION_SLOTS &&
   u['slots'].every(isSlot);
 
-// ---------------------------------------------------------------------------
-// SessionEnvelopeCodec — the v2 crypto/format engine.
-// ---------------------------------------------------------------------------
-
-/** GCM standard 96-bit nonce. A fresh random IV is minted per wrap/encrypt. */
+// GCM standard 96-bit nonce; a fresh random IV per wrap and encrypt.
 const IV_BYTES = 12;
-/** AES-256 / the DEK / every KEK are 256-bit. */
 const KEY_BYTES = 32;
 /**
- * scrypt memory clamp. Node's default `maxmem` (32 MiB) is too low for the
- * OWASP-grade PIN profile (N=2^17 needs 128*N*r = 128 MiB), so pass a ceiling
- * that fits the production profiles with headroom. A tampered envelope with an
- * absurd `N` makes scrypt refuse to allocate beyond this and error out (mapped to
- * a generic Validation failure) — no crash, no secret echoed.
+ * Node's default `maxmem` (32 MiB) is too low for the OWASP-grade PIN profile, where N=2^17
+ * needs 128 MiB, so the ceiling fits production profiles with headroom. A tampered envelope
+ * with an absurd `N` makes scrypt refuse to allocate and error out as a generic Validation
+ * failure — no crash, no secret echoed.
  */
 const SCRYPT_MAXMEM = 256 * 1024 * 1024;
 
-/** The per-slot secret + derivation inputs the codec needs to wrap/unwrap the DEK. */
 export interface SlotSecret {
   readonly kind: SlotKind;
-  /**
-   * Raw secret bytes the KEK is derived from (passphrase UTF-8 bytes, keyfile /
-   * recovery-keyfile bytes, or the machine-id bytes). The codec NEVER zeroizes
-   * the caller's secret — ownership stays with the store.
-   */
+  // Raw secret bytes the KEK derives from. The codec NEVER zeroizes the caller's secret —
+  // ownership stays with the store.
   readonly secret: Buffer;
   readonly kdfParams: KdfParams;
-  /** 16-byte fresh random per-slot salt. */
+  // 16-byte fresh random per-slot salt.
   readonly salt: Buffer;
 }
 
 /**
- * SessionEnvelopeCodec — owns the v2 envelope crypto + serialization end to end.
- * Generates the DEK, GCM-wraps it under each slot's scrypt KEK, and seals the
- * payload with AES-256-GCM. NO file I/O, NO long-lived state — every key buffer
- * it mints is zeroized before the method returns.
- *
- * Failure model (secret-free, fail-closed): a wrong secret, a tampered slot, or a
- * corrupt/malformed payload all collapse to a single `AppErrorCode.Validation`
- * (no secret, no stack trace); a seal-time crypto failure is `GatewayUnavailable`.
+ * Owns the v2 envelope crypto and serialization end to end: no file I/O, no long-lived state,
+ * and every key buffer it mints is zeroized before the method returns.
+ * Failure model is secret-free and fail-closed — a wrong secret, a tampered slot or a corrupt
+ * payload all collapse to one `Validation` error, while a seal-time crypto failure is
+ * `GatewayUnavailable`.
  */
 export class SessionEnvelopeCodec {
-  /**
-   * Build a fresh v2 envelope over RAW BYTES: mint a random DEK, wrap it under
-   * each slot's KEK, and seal the plaintext. Each call regenerates the DEK and
-   * all IVs, so re-sealing (a posture change) never reuses key material.
-   * Requires >= 1 slot. The caller owns the plaintext buffer (and its zeroization).
-   */
+  // Each call regenerates the DEK and every IV, so re-sealing after a posture change never
+  // reuses key material. Requires at least one slot; the caller owns the plaintext buffer.
   public async sealBytes(
     plaintext: Buffer,
     slots: readonly SlotSecret[],
@@ -270,10 +224,9 @@ export class SessionEnvelopeCodec {
   }
 
   /**
-   * Replace an envelope's payload while preserving its existing unlock slots.
-   * The selected slot authenticates access to the DEK; the replacement payload
-   * gets a fresh GCM nonce. This lets a policy update retain recovery access
-   * without loading or retaining the recovery secret.
+   * The selected slot authenticates access to the DEK and the replacement payload gets a fresh
+   * nonce, so a policy update keeps recovery access without loading or retaining the recovery
+   * secret.
    */
   public async replaceBytes(
     envelope: SessionEnvelopeV2,
@@ -316,12 +269,10 @@ export class SessionEnvelopeCodec {
   }
 
   /**
-   * Unlock a v2 envelope through ONE chosen slot (the store picks it per the
-   * channel-precedence rules): derive the slot's KEK, GCM-unwrap the DEK, then
-   * decrypt the payload. The DEK/KEK never escape this method — both are zeroized
-   * before return; the CALLER owns (and must zeroize) the returned plaintext.
-   * A wrong secret, a tampered slot, or a corrupt payload all fail closed as a
-   * Validation error (no plaintext, no stack trace, no secret).
+   * Derives the slot's KEK, unwraps the DEK, then decrypts the payload. DEK and KEK are
+   * zeroized before return and the caller owns the returned plaintext. A wrong secret, tampered
+   * slot or corrupt payload fail closed as Validation — no plaintext, no stack trace, no
+   * secret.
    */
   public async openBytes(
     envelope: SessionEnvelopeV2,
@@ -341,9 +292,8 @@ export class SessionEnvelopeCodec {
           Buffer.from(envelope.payload.iv, 'base64'),
         );
         decipher.setAuthTag(Buffer.from(envelope.payload.authTag, 'base64'));
-        // Capture the intermediates so they can be zeroized: Buffer.concat copies
-        // the plaintext, leaving update()/final()'s own buffers as un-wiped GC
-        // garbage otherwise. The caller owns (and zeroizes) the returned copy.
+        // Capture the intermediates so they can be zeroized: Buffer.concat copies the
+        // plaintext, leaving update()/final()'s own buffers as un-wiped GC garbage.
         const head = decipher.update(
           Buffer.from(envelope.payload.ciphertext, 'base64'),
         );
@@ -360,7 +310,6 @@ export class SessionEnvelopeCodec {
     }
   }
 
-  /** Authenticate one unlock slot and return its DEK to the immediate caller. */
   private async unwrapDek(
     slot: Slot,
     secret: Buffer,
@@ -396,12 +345,8 @@ export class SessionEnvelopeCodec {
     }
   }
 
-  /**
-   * scrypt KEK derivation with one sane memory clamp ({@link SCRYPT_MAXMEM}). A
-   * scrypt failure (bad params, or a tampered envelope whose `N` exceeds the
-   * clamp) collapses to a generic Validation error — no secret, no parameter
-   * echo, no process crash.
-   */
+  // A scrypt failure — bad params, or a tampered `N` above the clamp — collapses to a generic
+  // Validation error: no secret, no parameter echo, no process crash.
   private deriveKek(
     secret: Buffer,
     salt: Buffer,

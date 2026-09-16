@@ -95,9 +95,11 @@ export default tseslint.config(
     },
   },
 
-  // ---- LAYER BOUNDARY: infrastructure must not import presentation ----
-  // (It legitimately imports src/config — the sealed-policy pipeline — and has
-  // its own config/ subdirectory, so no '**/config/**' pattern here.)
+  /**
+   * ---- LAYER BOUNDARY: infrastructure must not import presentation ---- (It legitimately
+   * imports src/config — the sealed-policy pipeline — and has its own config/ subdirectory, so
+   * no '**/config/**' pattern here.)
+   */
   {
     files: ['src/infrastructure/**/*.ts'],
     rules: {
@@ -112,9 +114,11 @@ export default tseslint.config(
     },
   },
 
-  // ---- LAYER BOUNDARY: only infrastructure may import GramJS ----
-  // (.tsx included: the Ink setup wizard lives under src/presentation/cli/ink
-  // and must never reach GramJS — the encapsulation invariant holds for JSX too.)
+  /**
+   * ---- LAYER BOUNDARY: only infrastructure may import GramJS ---- (.tsx included: the Ink
+   * setup wizard lives under src/presentation/cli/ink and must never reach GramJS — the
+   * encapsulation invariant holds for JSX too.)
+   */
   {
     files: [
       'src/presentation/**/*.ts',

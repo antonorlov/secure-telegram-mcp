@@ -1,4 +1,4 @@
-/** Application public surface — use-cases + ports. Depends only on domain + shared. */
+// Application public surface — use-cases + ports. Depends only on domain + shared.
 
 export { AppErrorCode, appError, validationError } from './errors.js';
 export type { AppError } from './errors.js';
@@ -10,24 +10,24 @@ export type {
   ResolveScopeInput,
   ResolvedAccess,
 } from './dtos/endpoint-access.js';
-export type { SessionMaterial } from './dtos/session-material.js';
-export type { SessionKeySource } from './ports/session-key-source.js';
 export type {
+  SessionMaterial,
+  SessionKeySource,
   SessionAdmin,
   SessionSecurityAdmin,
   AddKekInput,
   RewrapKekInput,
   RemoveKekInput,
   EmitRecoveryKeyfileInput,
-} from './ports/session-admin.js';
+  RuntimeUnlockableStore,
+} from './ports/session.js';
 export type {
   ConfigRepository,
   LoadedConfiguration,
   KillSwitch,
-} from './ports/config-repository.js';
-export type { RuntimeUnlockableStore } from './ports/session-unlock.js';
-export type { ConfigDocumentParser } from './ports/config-document-parser.js';
-export type { SealedPolicyStore } from './ports/sealed-policy-store.js';
+  ConfigDocumentParser,
+  SealedPolicyStore,
+} from './ports/configuration.js';
 export type { AuditLog, AuditRecord } from './ports/audit-log.js';
 export { QuotaBucket } from './ports/rate-limiter.js';
 export type { RateLimiter, ConsumeQuotaInput } from './ports/rate-limiter.js';

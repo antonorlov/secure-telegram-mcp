@@ -1,8 +1,5 @@
-/**
- * DetailLine — the in-process detail read-out for the cursor row (kind, handle,
- * and which folders a chat appears under). The text is assembled by the screen;
- * this component only frames it.
- */
+// The detail read-out for the cursor row. The text is assembled by the screen; this component
+// only frames it.
 import type { FC } from 'react';
 import { Box, Text } from 'ink';
 

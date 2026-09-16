@@ -9,7 +9,7 @@
 import { constants } from 'node:fs';
 import { open } from 'node:fs/promises';
 
-/** Maximum plaintext config/draft bytes accepted from disk or the operator. */
+// Maximum plaintext config/draft bytes accepted from disk or the operator.
 export const MAX_POLICY_PLAINTEXT_BYTES = 4 * 1024 * 1024;
 
 /**
@@ -19,17 +19,17 @@ export const MAX_POLICY_PLAINTEXT_BYTES = 4 * 1024 * 1024;
  */
 export const MAX_ENCRYPTED_BLOB_BYTES = 6 * 1024 * 1024;
 
-/** A 4096-byte passphrase plus the optional trailing CRLF accepted by *_FILE. */
+// A 4096-byte passphrase plus the optional trailing CRLF accepted by *_FILE.
 export const MAX_PASSPHRASE_FILE_BYTES = 4 * 1024 + 2;
 
-/** Compatibility ceiling for arbitrary operator-generated key material. */
+// Compatibility ceiling for arbitrary operator-generated key material.
 export const MAX_KEY_FILE_BYTES = 1024 * 1024;
 
-/** True when a caught value is a Node errno error with the given `code`. */
+// True when a caught value is a Node errno error with the given `code`.
 export const hasErrnoCode = (e: unknown, code: string): boolean =>
   typeof e === 'object' && e !== null && (e as { code?: unknown }).code === code;
 
-/** Thrown when a file exceeds its read ceiling. Carries sizes, never content. */
+// Thrown when a file exceeds its read ceiling. Carries sizes, never content.
 export class FileTooLargeError extends Error {
   public constructor(byteLength: number, maxBytes: number) {
     super(
@@ -39,7 +39,7 @@ export class FileTooLargeError extends Error {
   }
 }
 
-/** Thrown when a path is not a regular file (devices/FIFOs must never be slurped). */
+// Thrown when a path is not a regular file (devices/FIFOs must never be slurped).
 export class NotRegularFileError extends Error {
   public constructor() {
     super('path is not a regular file');
@@ -102,7 +102,7 @@ export const readRegularFileBounded = async (
   }
 };
 
-/** Read a UTF-8 file, refusing files over `maxBytes` (default: the ceiling). */
+// Read a UTF-8 file, refusing files over `maxBytes` (default: the ceiling).
 export const readUtf8Bounded = async (
   filePath: string,
   maxBytes: number = MAX_POLICY_PLAINTEXT_BYTES,

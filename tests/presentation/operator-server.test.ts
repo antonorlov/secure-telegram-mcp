@@ -438,9 +438,11 @@ describe.skipIf(process.platform === 'win32')('operator server', () => {
       socket.on('data', (chunk: Buffer) => { received += chunk.toString('utf8'); });
       socket.once('close', resolve);
     });
-    // One chunk = the framer enqueues all 40 lines in one synchronous pass, so
-    // no handler can release a slot in between: the 33rd request MUST trip the
-    // hard cap and destroy the socket (deterministic, not racy).
+    /**
+     * One chunk = the framer enqueues all 40 lines in one synchronous pass, so no handler can
+     * release a slot in between: the 33rd request MUST trip the hard cap and destroy the socket
+     * (deterministic, not racy).
+     */
     socket.write(
       Array.from({ length: 40 }, (_, index) =>
         `${JSON.stringify({ v: 1, id: String(index), op: 'status' })}\n`,

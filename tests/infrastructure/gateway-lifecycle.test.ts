@@ -1,23 +1,8 @@
 /**
- * GramjsTelegramGateway lifecycle — dispose() as a COMPLETE ownership barrier.
- *
- * Telegram's auth key has exactly ONE owner-connection; the daemon admits a
- * replacement gateway only after the old one's dispose() resolves. Pinned here:
- *  - dispose() does NOT resolve while an openShared() is mid-connect (resolving
- *    early would declare the key free just as the old connection comes up);
- *  - CONCURRENT dispose() callers share ONE teardown — no caller sees "done"
- *    before the connection is actually gone;
- *  - scoped and GramJS-triggered reconnects share one gateway-owned promise,
- *    which disposal drains before destroying the physical client;
- *  - in-flight scoped RPCs drain before sender teardown;
- *  - scope resolution and binding reuse one physical client;
- *  - a FAILED final destroy propagates (the retirement chain reports TEARDOWN
- *    FAILED) instead of being swallowed into a silently-"complete" barrier;
- *  - binds after dispose are refused; dispose is idempotent.
- *
- * Driven through a fake TelegramClient via the `clientFactory` seam (no
- * network). The authorized path uses REAL Api.User entities so buildBinding /
- * canonicalIdOf run for real.
+ * dispose() as a COMPLETE ownership barrier. Telegram's auth key has exactly one
+ * owner-connection, so the daemon admits a replacement gateway only after dispose() resolves:
+ * it never resolves while an openShared() is mid-connect, and concurrent callers share one
+ * teardown.
  */
 import { describe, it, expect } from 'vitest';
 import { Api, helpers } from 'telegram';
@@ -36,10 +21,10 @@ import {
   resolvedScope,
 } from '../application/_support.js';
 
-/** Let every currently-queued microtask/timer-0 run. */
+// Let every currently-queued microtask/timer-0 run.
 const settle = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
 
-/** The one in-scope peer (id 100, matching _support's IN_SCOPE) as a real Api entity. */
+// The one in-scope peer (id 100, matching _support's IN_SCOPE) as a real Api entity.
 const scopedUser = (): Api.User =>
   new Api.User({
     id: helpers.returnBigInt(100),
@@ -84,7 +69,7 @@ class FakeTelegramClient {
     this.releaseConnect?.();
   }
 
-  /** Re-arm the gate so the NEXT connect() parks again (reconnect scenarios). */
+  // Re-arm the gate so the NEXT connect() parks again (reconnect scenarios).
   public gateNextConnect(): void {
     this.connectGate = new Promise<void>((release) => {
       this.releaseConnect = release;

@@ -1,10 +1,7 @@
 /**
- * SessionGate — the shared locked/unlocked SSOT and its one-time, ATOMIC,
- * fail-closed transition. Driven with in-memory fakes (no crypto, no socket):
- *  - starts locked for hardened+machine, unlocked (with a menu) for smooth/PIN;
- *  - a wrong PIN / tampered policy returns a secret-free error and rolls back;
- *  - a good PIN + valid config opens the policy ONCE, installs the source, and
- *    publishes the ENFORCED menu used by endpoint and kill-switch resolution.
+ * The shared locked/unlocked SSOT and its one-time, atomic, fail-closed transition, driven with
+ * in-memory fakes: a wrong PIN or tampered policy returns a secret-free error and rolls back,
+ * while a good PIN opens the policy once and publishes the ENFORCED menu.
  */
 import { describe, it, expect } from 'vitest';
 
@@ -24,7 +21,7 @@ import { buildEndpoint, killSwitch } from './_support.js';
 
 const PIN: SessionKeySource = { kind: 'passphrase', passphrase: 'correct-horse' };
 
-/** A recording RuntimeUnlockableStore whose verify verdict is configurable. */
+// A recording RuntimeUnlockableStore whose verify verdict is configurable.
 class FakeUnlockStore implements RuntimeUnlockableStore {
   public readonly setSources: SessionKeySource[] = [];
   public verifyCalls = 0;
@@ -38,7 +35,7 @@ class FakeUnlockStore implements RuntimeUnlockableStore {
   }
 }
 
-/** A ConfigRepository whose load verdict is configurable (enforced reload). */
+// A ConfigRepository whose load verdict is configurable (enforced reload).
 class FakeAuthRepo implements ConfigRepository {
   public loadCalls = 0;
   public result: Result<LoadedConfiguration, AppError>;
@@ -204,9 +201,11 @@ describe('SessionGate.authenticateOperator — fail-closed transition', () => {
   });
 
   it('unlock publishes ATOMICALLY: onPublished runs with the menu ALREADY swapped', async () => {
-    // The same contract as reload's hook — the daemon retires its derived caches
-    // (contexts, session stacks) inside onPublished, so it must observe the NEW
-    // enforced menu in that same synchronous frame.
+    /**
+     * The same contract as reload's hook — the daemon retires its derived caches (contexts,
+     * session stacks) inside onPublished, so it must observe the NEW enforced menu in that same
+     * synchronous frame.
+     */
     const menu = enforcedMenu();
     const store = new FakeUnlockStore(ok(undefined));
     const authRepo = new FakeAuthRepo(ok(menu));

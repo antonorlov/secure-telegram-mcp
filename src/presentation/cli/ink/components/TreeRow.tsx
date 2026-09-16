@@ -1,12 +1,7 @@
 /**
- * TreeRow — one rendered list row: a chat, or the pinned "whole folder as a unit" row shown at
- * the top of a folder tab. A pure projection of already-derived read-outs
- * (`effective`/`triState` come from the reducer selectors, never here).
- *
- * Colour encodes access at a glance: a member is tinted green when read-only and amber (bold)
- * when writable — the escalation warning — while a non-member stays dim. Colour only reinforces
- * the `r`/`rw` text token and collapses to the terminal default under NO_COLOR. The cursor /
- * visual-range accents never change access.
+ * One rendered list row: a chat, or the pinned "whole folder as a unit" row at the top of a
+ * folder tab. A pure projection of already-derived read-outs — `effective` and `triState` come
+ * from the reducer selectors, never from here.
  */
 import type { FC } from 'react';
 import { Box, Text } from 'ink';
@@ -45,7 +40,6 @@ export const TreeRow: FC<TreeRowProps & { readonly theme?: Theme }> = ({
       ? theme.color.match
       : undefined;
 
-  // --- the pinned "whole folder as a unit" row (top of a folder tab) ----------
   if (row.kind === 'folder') {
     const check = triStateGlyph(triState ?? 'none', g);
     const body = folderSummary ?? `Entire "${row.title}" folder`;
@@ -63,7 +57,6 @@ export const TreeRow: FC<TreeRowProps & { readonly theme?: Theme }> = ({
     );
   }
 
-  // --- a chat leaf row --------------------------------------------------------
   const isMember = effective?.member === true;
   const tint = accessColor(effective, theme);
   const handle = row.username !== undefined ? ` @${row.username}` : '';

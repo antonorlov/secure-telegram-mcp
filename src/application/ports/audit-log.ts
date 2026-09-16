@@ -1,8 +1,5 @@
-/**
- * AuditLog — append-only record of write-tier attempts, in-engine read
- * resolve/ACL/quota denials, and successful media egress. Records are structured
- * and MUST NOT contain secrets or raw untrusted prose.
- */
+// Append-only record of write attempts, in-engine denials and successful media egress. Records
+// must never carry secrets or raw untrusted prose.
 import type { Result } from '../../shared/index.js';
 import type {
   EndpointNameValue,
@@ -14,12 +11,9 @@ export interface AuditRecord {
   readonly timestampIso: string;
   readonly endpointName: EndpointNameValue;
   readonly verb: PermissionVerb;
-  /** Canonical target peer id (string), when the action addressed a peer. */
   readonly targetChatId?: string;
-  /** 'allow' for executed actions; 'deny' with a reason for refused ones. */
   readonly outcome: 'allow' | 'deny';
   readonly reason?: string;
-  /** Idempotency key of a write, for correlation. */
   readonly idempotencyKey?: string;
 }
 

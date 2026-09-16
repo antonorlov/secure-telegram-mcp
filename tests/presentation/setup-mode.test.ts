@@ -1,31 +1,7 @@
 /**
- * setup — first-run posture (PIN) UX and the mode-aware, SECRET-FREE
- * client-config printer.
- *
- * `runSetup` is the composition entrypoint: it drives ONE persistent Ink app
- * (`runSetupApp`) against the framework-free `SetupUi` port, and constructs its
- * own draft repository while privileged work crosses the injected daemon
- * operator port. We drive the REAL `runSetup` end-to-end with
- * two stubs:
- *
- *   - `runSetupApp` — replaced by a headless driver that invokes the flow with a
- *     SCRIPTED fake `SetupUi`: `menu` dequeues arrow-nav choices, `text`/
- *     `password` dequeue the operator's typed answers in order, `confirm`
- *     interprets a y/N answer, and `pickAccess` commits every enumerated chat
- *     read-only — so the whole interactive flow is deterministic and never mounts
- *     Ink / touches a real TTY; `note` is routed to STDERR (the diagnostic side).
- *   - the directly imported infrastructure adapters — a draft fake plus
- *     deterministic endpoint-key helpers, and a fake operator port that records
- *     login posture and policy application.
- *
- * Security invariants asserted concretely (per the credential-at-rest spec):
- *   1. FIRST-RUN DEFAULT IS NON-PIN: declining the PIN prompt (the default N)
- *      seals the session under a MACHINE slot (SMOOTH), observed at the daemon
- *      operator boundary, and never demands a secret.
- *   2. printClientConfig is MODE-AWARE + SECRET-FREE: a SMOOTH endpoint emits NO
- *      session secret; a HARDENED endpoint emits NO PIN and NO passphrase-file env
- *      (unlock is interactive via the CLI daemon); api_id/api_hash are SEALED into
- *      the session and NEVER inlined into the printed config.
+ * setup — first-run posture (PIN) UX and the mode-aware, secret-free client-config printer.
+ * `runSetup` is the composition entrypoint: it drives ONE persistent Ink app against the
+ * framework-free `SetupUi` port, so these suites script that port instead of a terminal.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
@@ -55,11 +31,7 @@ import type {
   ChatKey,
 } from '../../src/presentation/cli/picker/index.js';
 
-// ---------------------------------------------------------------------------
-// Hoisted test doubles + observable state. `vi.hoisted` runs before the
-// `vi.mock` factories below, which reference the fakes it returns.
-// ---------------------------------------------------------------------------
-
+// `vi.hoisted` runs before the `vi.mock` factories below, which reference the fakes it returns.
 const H = vi.hoisted(() => {
   interface Ok<T> {
     readonly ok: true;
@@ -117,9 +89,8 @@ const H = vi.hoisted(() => {
     return answer;
   };
 
-  // The arrow-nav menu seam (main menu / login method / session-security). Each
-  // scripted choice is the option VALUE the operator would land Enter on, or the
-  // sentinel '__cancel__' for an Esc/q cancel.
+  // Each scripted choice is the option VALUE the operator would land Enter on, or the
+  // `__cancel__` sentinel for an Esc or q.
   const CANCEL = '__cancel__';
   const nextMenuChoice = (): string => {
     if (state.menuCursor >= state.menuChoices.length) {
@@ -145,13 +116,11 @@ const H = vi.hoisted(() => {
     return lc === 'y' || lc === 'yes';
   };
 
-  // --- fake SetupUi (the ONE stdin seam the single Ink app exposes) ---
-  // `text`/`password` dequeue typed answers; `confirm` interprets a y/N answer;
-  // `menu` dequeues an arrow-nav choice; `pickAccess` commits every enumerated
-  // chat as a read-only member (mirroring an operator who accepts the defaults);
-  // `notify` is the ephemeral-status channel (routed to STDERR); `notice`
-  // acknowledges must-read blocks immediately; `status` just runs the async task.
-  // No Ink is mounted and no real terminal is touched.
+  /**
+   * The fake `SetupUi` — the one stdin seam: `text` and `password` dequeue typed answers,
+   * `confirm` interprets a y/N answer, `menu` dequeues an arrow-nav choice, and `pickAccess`
+   * commits every enumerated chat as a read-only member.
+   */
   const makeSetupUi = (): SetupUi => ({
     menu: <T,>(_request: MenuRequest<T>): Promise<MenuResult<T>> => {
       const choice = nextMenuChoice();
@@ -198,9 +167,8 @@ const H = vi.hoisted(() => {
     notify: (line: string): void => {
       process.stderr.write(`${line}\n`);
     },
-    // A must-read block: acknowledged immediately here, but its content is written
-    // to STDERR (the diagnostic side) so integration assertions on the shown text
-    // hold regardless of which lane now carries it.
+    // Acknowledged immediately here, but its content is written to STDERR, so integration
+    // assertions on the shown text hold regardless of which lane carries it.
     notice: (request: NoticeRequest): Promise<void> => {
       if (request.title.startsWith('API key for "')) {
         state.events.push('api-key-notice');
@@ -213,7 +181,7 @@ const H = vi.hoisted(() => {
   });
 
   class FakeFileConfigRepository {
-    /** No config on disk yet — every suite here edits from a first-run baseline. */
+    // No config on disk yet — every suite here edits from a first-run baseline.
     public loadValidated(): Promise<Ok<undefined>> {
       return Promise.resolve(okv(undefined));
     }
@@ -232,10 +200,11 @@ const H = vi.hoisted(() => {
   };
 });
 
-// The WHOLE interactive surface is the ONE persistent Ink app, lazy-imported
-// behind `runSetupApp(flow)`. Here we stub that seam to a headless driver that
-// invokes the flow with the scripted fake `SetupUi` — so every menu/text/secret/
-// confirm/picker is deterministic without ever mounting Ink / touching a TTY.
+/**
+ * The whole interactive surface is the ONE persistent Ink app, lazy-imported behind
+ * `runSetupApp(flow)`. Stubbing that seam drives the flow with the scripted fake `SetupUi`, so
+ * every prompt is deterministic.
+ */
 vi.mock('../../src/presentation/cli/ink/run-setup-app.js', () => ({
   runSetupApp: (flow: (ui: SetupUi) => Promise<void>): Promise<void> =>
     flow(H.makeSetupUi()),
@@ -255,8 +224,8 @@ vi.mock('../../src/infrastructure/endpoint-token.js', () => ({
 }));
 
 vi.mock('../../src/infrastructure/app-home.js', () => ({
-  // Central-home defaults (real impl reads ~/.telegram-mcp; tests use tmp paths,
-  // so these only matter for the "is it the default?" comparison in the block).
+  // The real implementation reads the central home; tests use tmp paths, so these matter only
+  // for the "is it the default?" comparison in the printed block.
   defaultConfigPath: (): string => '/nonexistent-default/config.json',
   defaultSessionDir: (): string => '/nonexistent-default/sessions',
 }));
@@ -265,21 +234,14 @@ vi.mock('../../src/infrastructure/bounded-read.js', () => ({
   readUtf8Bounded: (): Promise<string> => Promise.resolve('{"version":1}'),
 }));
 
-// ---------------------------------------------------------------------------
-// Constants pinned to the spec/implementation contract.
-// ---------------------------------------------------------------------------
-
 const PIN = 'correct-horse-battery-staple';
 // A valid 32-hex api_hash: setup now validates the env pre-fill and uses it
 // without prompting, so the scripted answer order below is unchanged.
 const API_HASH = 'deadbeefdeadbeefdeadbeefdeadbeef';
 const API_ID = 7654321;
 
-// ---------------------------------------------------------------------------
-// STDIO capture — suppress + record. setup writes prompts/diagnostics to STDERR
-// and ONLY the copy-paste client-config JSON to STDOUT.
-// ---------------------------------------------------------------------------
-
+// STDIO capture: setup writes prompts and diagnostics to STDERR, and ONLY the copy-paste
+// client-config JSON to STDOUT.
 const stdoutChunks: string[] = [];
 const stderrChunks: string[] = [];
 
@@ -289,10 +251,6 @@ const ORIGINAL_EXIT_CODE = process.exitCode;
 
 const stdoutText = (): string => stdoutChunks.join('');
 const stderrText = (): string => stderrChunks.join('');
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 const makeOperator = (): OperatorClientPort => {
   let pending: { readonly apiId: number; readonly apiHash: string } | undefined;
@@ -377,7 +335,7 @@ const makeOptions = (): SetupOptions => ({
   operatorClient: makeOperator(),
 });
 
-/** Options with NO api-cred pre-fill — setup must PROMPT for them. */
+// Options with NO api-cred pre-fill — setup must PROMPT for them.
 const makeOptionsNoCreds = (): SetupOptions => ({
   configPath: join(tmpdir(), `tg-mcp-setup-${randomUUID()}`, 'config.json'),
   sessionDir: join(tmpdir(), `tg-mcp-setup-${randomUUID()}`),
@@ -388,7 +346,6 @@ const makeOptionsNoCreds = (): SetupOptions => ({
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null;
 
-/** Safely pluck a server's `env` map out of the printed client-config JSON. */
 const envOf = (raw: string, server: string): Record<string, unknown> => {
   const parsed: unknown = JSON.parse(raw);
   if (!isRecord(parsed)) {
@@ -409,17 +366,11 @@ const envOf = (raw: string, server: string): Record<string, unknown> => {
   return env;
 };
 
-// ---------------------------------------------------------------------------
-// Lifecycle
-// ---------------------------------------------------------------------------
-
 beforeEach(() => {
   stdoutChunks.length = 0;
   stderrChunks.length = 0;
   // Pin the machine surface: the exit bundle is emitted only when STDOUT is piped.
   process.stdout.isTTY = false;
-  // Suppress + record both streams. setup writes the copy-paste client-config
-  // JSON to STDOUT and all prompts/diagnostics to STDERR.
   vi.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown): boolean => {
     if (typeof chunk === 'string') {
       stdoutChunks.push(chunk);
@@ -458,7 +409,7 @@ afterEach(() => {
 // Scripted text/password/confirm answers consumed by the fake SetupUi. Choice
 // menus are scripted separately in `MENU` below. Each comment is the prompt.
 const ANSWERS = {
-  /** Decline the PIN (default N) -> SMOOTH; create one read endpoint. */
+  // Decline the PIN (default N) -> SMOOTH; create one read endpoint.
   smoothFirstRun: [
     '', // session name -> 'main'
     '', // "Set a PIN for extra security?" -> default N (non-PIN)
@@ -467,7 +418,7 @@ const ANSWERS = {
     // (the Ink picker handles chat + r/w selection)
     '', // confirm writes? -> default yes
   ],
-  /** Accept a PIN -> HARDENED; create one read endpoint. */
+  // Accept a PIN -> HARDENED; create one read endpoint.
   hardenedFirstRun: [
     '', // session name -> 'main'
     'y', // "Set a PIN for extra security?" -> yes
@@ -476,10 +427,8 @@ const ANSWERS = {
     '', // endpoint name -> 'reader'
     '', // confirm writes? -> default yes
   ],
-  /**
-   * No api-cred pre-fill: setup PROMPTS for api_id then api_hash (right after
-   * choosing login), then proceeds through the SMOOTH first-run flow.
-   */
+  // No api-cred pre-fill: setup PROMPTS for api_id then api_hash (right after choosing login),
+  // then proceeds through the SMOOTH first-run flow.
   promptedCredsSmooth: [
     String(API_ID), // api_id prompt
     API_HASH, // api_hash prompt (echo-off)
@@ -492,20 +441,18 @@ const ANSWERS = {
   ],
 } as const;
 
-// Scripted arrow-nav menu choices (the option VALUE the operator selects), in the
-// order the menus open: main menu -> [login method] -> [endpoint editor] -> ... ->
-// main menu (quit). The endpoint list has no Save row: picker/spoke commits persist
-// immediately, so leaving the list is a cancel ('__cancel__' = Esc/←).
+/**
+ * Scripted arrow-nav menu choices (the option VALUE the operator selects), in the order the
+ * menus open: main menu -> [login method] -> [endpoint editor] -> ... -> main menu (quit). The
+ * endpoint list has no Save row: picker/spoke commits persist immediately, so leaving the list
+ * is a cancel ('__cancel__' = Esc/←).
+ */
 const MENU = {
-  /** login & configure (QR); add one endpoint, then leave the hub; then quit. */
+  // login & configure (QR); add one endpoint, then leave the hub; then quit.
   smoothFirstRun: ['login', 'qr', 'add', '__cancel__', 'quit'],
   hardenedFirstRun: ['login', 'qr', 'add', '__cancel__', 'quit'],
   promptedCredsSmooth: ['login', 'qr', 'add', '__cancel__', 'quit'],
 } as const;
-
-// ---------------------------------------------------------------------------
-// 1) First-run default is non-PIN (SMOOTH).
-// ---------------------------------------------------------------------------
 
 describe('setup first-run posture', () => {
   it('saves and applies the endpoint before returning to the endpoint list', async () => {
@@ -603,10 +550,6 @@ describe('setup first-run posture', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// 3) printClientConfig is mode-aware and secret-free.
-// ---------------------------------------------------------------------------
-
 describe('setup printClientConfig (mode-aware, secret-free)', () => {
   it('SMOOTH endpoint emits NO session secret and never inlines api creds', async () => {
     H.state.answers = ANSWERS.smoothFirstRun;
@@ -667,10 +610,11 @@ describe('setup printClientConfig (mode-aware, secret-free)', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// 4) Interactive api-credential acquisition (the export/shell-history fix).
-// ---------------------------------------------------------------------------
-
+/**
+ * --------------------------------------------------------------------------- 4) Interactive
+ * api-credential acquisition (the export/shell-history fix).
+ * ---------------------------------------------------------------------------
+ */
 describe('setup interactive api-credential acquisition', () => {
   it('PROMPTS for api_id/api_hash when none are pre-filled, then seals them', async () => {
     H.state.answers = ANSWERS.promptedCredsSmooth;

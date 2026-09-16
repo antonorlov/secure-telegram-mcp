@@ -13,7 +13,7 @@
  * deny at execution, where the per-chat verb+scope+kill check (the sole ACL) runs.
  * Forbidden bypass names are still never wired.
  *
- * A new tool slots in by adding a factory module, its spec to READ_SPECS/WRITE_SPECS, and
+ * A new tool slots in by adding a factory to its tool group, its spec to READ_SPECS/WRITE_SPECS, and
  * one line here.
  */
 import type { AnyToolDefinition } from '../registry.js';
@@ -25,24 +25,30 @@ import {
   WRITE_SPECS,
   type WriteUseCaseDeps,
 } from '../../../application/index.js';
-
-import { createGetMessagesTool } from './getMessages.js';
-import { createSearchMessagesTool } from './searchMessages.js';
-import { createListDialogsTool } from './listDialogs.js';
-import { createListTopicsTool } from './listTopics.js';
-import { createGetChatInfoTool } from './getChatInfo.js';
-import { createGetMediaInfoTool } from './getMediaInfo.js';
-import { createDownloadMediaTool } from './downloadMedia.js';
-import { createGetPinnedMessagesTool } from './getPinnedMessages.js';
-import { createListParticipantsTool } from './listParticipants.js';
-import { createSendMessageTool } from './sendMessage.js';
-import { createEditMessageTool } from './editMessage.js';
-import { createDeleteMessageTool } from './deleteMessage.js';
-import { createSaveDraftTool } from './saveDraft.js';
-import { createMarkReadTool } from './markRead.js';
-import { createForwardMessageTool } from './forwardMessage.js';
-import { createSendReactionTool } from './sendReaction.js';
-import { createPrepareMediaTool, createSendMediaTool } from './sendMedia.js';
+import {
+  createGetMediaInfoTool,
+  createDownloadMediaTool,
+  createPrepareMediaTool,
+  createSendMediaTool,
+} from './media-tools.js';
+import {
+  createSendMessageTool,
+  createEditMessageTool,
+  createDeleteMessageTool,
+  createSaveDraftTool,
+  createMarkReadTool,
+  createForwardMessageTool,
+  createSendReactionTool,
+} from './write-tools.js';
+import {
+  createGetMessagesTool,
+  createSearchMessagesTool,
+  createListDialogsTool,
+  createListTopicsTool,
+  createGetChatInfoTool,
+  createGetPinnedMessagesTool,
+  createListParticipantsTool,
+} from './read-tools.js';
 
 /**
  * Assemble the complete v1 tool catalogue as an immutable array, wiring each tool factory

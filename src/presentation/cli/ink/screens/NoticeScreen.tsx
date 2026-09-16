@@ -1,16 +1,7 @@
 /**
- * NoticeScreen — the dedicated must-read screen: a bold title, the body rendered on its own
- * un-truncated screen (so a HARDENED PIN-file block or a shown-once API key stays intact
- * and copyable), then a dim acknowledge hint. Body lines are tinted line-by-line via
- * `classifyNoticeLine` — commands accent, asides dim, prose full-contrast.
- *
- * The block lives in the live region, so pressing Enter unmounts it and the flow continues on
- * a clean screen — it does not linger stacked above the next menu. (Not Ink `<Static>`, which
- * commits output permanently and would pile every must-read above later screens.)
- *
- * It blocks: it raises a single acknowledgment through `onDone` when the operator presses
- * Enter — that is what makes `ui.notice(...)` awaitable, guaranteeing the operator saw the
- * block before the flow moves on.
+ * The dedicated must-read screen: a bold title, the body rendered un-truncated on its own
+ * screen — so a HARDENED PIN-file block or a shown-once API key stays intact and copyable —
+ * then a dim acknowledge hint.
  */
 import { type FC } from 'react';
 import { Box, Text, useInput } from 'ink';
@@ -29,9 +20,8 @@ export const NoticeScreen: FC<{
     }
   });
 
-  // Title (bold), a blank spacer row, then the body — all in the live region, so the
-  // whole block is wiped the moment this screen is dismissed. Body indices are stable
-  // keys: the body is static per mount (same rationale as MenuScreen's option rows).
+  // Title, spacer and body all sit in the live region, so the whole block is wiped the moment
+  // this screen is dismissed. Body indices are stable keys: the body is static per mount.
   return (
     <Box flexDirection="column">
       <Text {...colorProps(defaultTheme.color.title)} bold>

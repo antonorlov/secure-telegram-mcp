@@ -1,13 +1,8 @@
 /**
- * Endpoint draft + shared field editors — the ergonomic on-disk endpoint model and the
- * per-field editing primitives reused by both the first-run creation wizard
- * (`editEndpoint`) and the random-access edit hub (`runEndpointHub`). The wizard and the
- * hub call the same name / access / confirm-writes / API-key editors, so their validation
- * and prompts can never drift.
- *
- * Framework-free: depends only on the `SetupUi` port, the framework-free picker model +
- * bridge, the config value types, the domain verb vocabulary, and the infrastructure token
- * mint/hash. No Ink/React/GramJS import, so every editor is unit-testable behind a fake `SetupUi`.
+ * The ergonomic on-disk endpoint model plus the per-field editors shared by the first-run
+ * wizard and the random-access edit hub, so their validation and prompts can never drift.
+ * Framework-free: no Ink, React or GramJS import, so every editor is unit-testable behind a
+ * fake `SetupUi`.
  */
 import {
   ENDPOINT_TOKEN_ENV,
@@ -36,10 +31,11 @@ import {
 } from './picker/index.js';
 import type { NoticeRequest, SetupUi } from './ink/setup-ui-port.js';
 
-// The draft DTO — a plain editable model over the schema's NORMALISED field types
-// (PeerRef/FolderRef/verbs), so a re-run round-trips the file losslessly with no
-// shorthand<->entry re-coding per edit; serialization lives in FileConfigRepository.
-
+/**
+ * A plain editable model over the schema's NORMALISED field types, so a re-run round-trips the
+ * file losslessly with no shorthand re-coding per edit; serialization lives in
+ * FileConfigRepository.
+ */
 export interface EndpointDraft {
   name: string;
   session: string;
@@ -47,20 +43,14 @@ export interface EndpointDraft {
   folders: FolderRef[];
   verbs: PermissionVerb[];
   confirmWrites: boolean;
-  /** Per-chat verb overrides (the picker's r/w projected onto verb tiers). */
   chatOverrides: DeclaredChatVerbOverride[];
-  /** Salted digest of the endpoint API key (persisted; authorization gate only). */
+  // Salted digest of the endpoint API key — persisted, authorization gate only.
   tokenHash: string;
-  /**
-   * The plaintext API key — transient (this run only; never persisted — the config stores
-   * only `tokenHash`). Present when the key was just minted this session (create /
-   * regenerate), so it can be shown once and inlined into the exit `.mcp.json` block; a
-   * reloaded endpoint carries only the hash.
-   */
+  // Transient, this run only: the config stores just `tokenHash`. Present when the key was
+  // minted this session, so it can be shown once and inlined into the exit `.mcp.json` block.
   token?: string;
 }
 
-/** Project the schema's normalised endpoint DTO into the mutable setup draft. */
 export const endpointDraftFromValidated = (
   endpoint: ValidatedEndpoint,
 ): EndpointDraft => ({
@@ -74,26 +64,15 @@ export const endpointDraftFromValidated = (
   tokenHash: endpoint.tokenHash,
 });
 
-/**
- * The membership + access fragment the access editor projects out of the picker.
- * Merged into an `EndpointDraft` by both the wizard and the hub (name / session /
- * HITL / key are owned by the other editors).
- */
-export interface AccessProjection {
-  readonly chats: PeerRef[];
-  readonly folders: FolderRef[];
-  readonly verbs: PermissionVerb[];
-  readonly chatOverrides: DeclaredChatVerbOverride[];
-}
+// Name, session, HITL and key stay with the other editors.
+export type AccessProjection = Readonly<
+  Pick<EndpointDraft, 'chats' | 'folders' | 'verbs' | 'chatOverrides'>
+>;
 
-/** The default endpoint name offered on a first-run create. */
 const DEFAULT_ENDPOINT_NAME = 'reader';
 
-/**
- * A default endpoint name that does NOT collide with existing ones: `base`, else
- * `base-2`, `base-3`, … The config schema rejects duplicate names, so a fresh
- * create must not pre-fill an already-taken slug.
- */
+// `base`, else `base-2`, `base-3`, … The config schema rejects duplicate names, so a fresh
+// create must not pre-fill an already-taken slug.
 export const uniqueEndpointName = (
   existing: readonly string[],
   base: string = DEFAULT_ENDPOINT_NAME,
@@ -106,14 +85,8 @@ export const uniqueEndpointName = (
   }
 };
 
-// Read-only projections of a draft (row hints + summaries)
-
-/**
- * True when an endpoint (or a fresh access projection) grants write anywhere — its group
- * verbs or any per-chat override (the picker projects write to overrides, keeping group
- * verbs read-only, security-first). Answers "is write confirmation even relevant?" — a
- * read-only endpoint has no writes to confirm.
- */
+// True when an endpoint grants write anywhere — group verbs or any per-chat override. Answers
+// whether write confirmation is even relevant: a read-only endpoint has no writes to confirm.
 export const grantsWriteVerbs = (access: {
   readonly verbs: readonly PermissionVerb[];
   readonly chatOverrides: readonly { readonly verbs: readonly PermissionVerb[] }[];
@@ -121,10 +94,8 @@ export const grantsWriteVerbs = (access: {
   access.verbs.some(isWriteVerb) ||
   access.chatOverrides.some((o) => o.verbs.some(isWriteVerb));
 
-/**
- * One-line summary of an endpoint (row hint / hub subtitle). `confirmWrites` is shown only
- * when the endpoint can write — for a read-only endpoint it is irrelevant, so it is omitted.
- */
+// `confirmWrites` is shown only when the endpoint can write; for a read-only endpoint it is
+// irrelevant.
 export const endpointSummary = (ep: EndpointDraft): string => {
   const base =
     `@${ep.session} · ${ep.verbs.join('/')} · ${String(ep.chats.length)} chats · ` +
@@ -134,17 +105,12 @@ export const endpointSummary = (ep: EndpointDraft): string => {
     : base;
 };
 
-/** The Access row hint: "N chats · M folders · <read|read+write>". */
 export const accessHint = (ep: EndpointDraft): string =>
   `${String(ep.chats.length)} chats · ${String(ep.folders.length)} folders · ${
     grantsWriteVerbs(ep) ? 'read+write' : 'read'
   }`;
 
-/**
- * A short preview of an API key for the hub row hint, e.g. `tgmcp_abc…wxyz` (prefix + first
- * 3 body chars + `…` + last 4). Only ever called with a token held transiently this session
- * (never a stored one — the config keeps only the hash).
- */
+// Only ever called with a token held transiently this session — the config keeps only the hash.
 export const truncateKey = (token: string): string => {
   const body = token.startsWith('tgmcp_') ? token.slice('tgmcp_'.length) : token;
   if (body.length <= 7) {
@@ -153,14 +119,8 @@ export const truncateKey = (token: string): string => {
   return `tgmcp_${body.slice(0, 3)}…${body.slice(-4)}`;
 };
 
-// Shared per-field editors (reused by the creation wizard and the edit hub)
-
-/**
- * Prompt for the endpoint name (lowercase slug). The pre-filled value is the current name
- * (or `reader` on create); an empty submit or cancel keeps it. The slug rule is a
- * recoverable, in-place re-prompt (the schema is the final gate — a collision or malformed
- * slug is rejected there on save).
- */
+// The slug rule is a recoverable, in-place re-prompt; the schema is the final gate, rejecting a
+// collision or malformed slug on save.
 export const promptEndpointName = async (
   ui: SetupUi,
   defaultName: string,
@@ -186,9 +146,9 @@ export const promptEndpointName = async (
 };
 
 /**
- * Warn that stored scope refs no longer match any live chat/folder (a rename or
- * departure) and confirm proceeding — editing would DROP them. Default is NO, so
- * an Esc/Enter keeps the endpoint untouched rather than silently narrowing it.
+ * Editing would DROP stored refs that no longer match a live chat or folder, so confirm first.
+ * Default is NO, so Esc or Enter keeps the endpoint untouched rather than silently narrowing
+ * it.
  */
 const promptUnmatchedRefs = async (
   ui: SetupUi,
@@ -208,12 +168,10 @@ const promptUnmatchedRefs = async (
 };
 
 /**
- * The hard step: the pruned-tree access picker -> review gate (`ui.pickAccess`), where both
- * membership (which chats/folders are in scope) and per-chat r/w are chosen — there is no
- * separate permissions editor. Hydrates the id-keyed selection from `current`
- * (re-entrancy), then projects the committed model back to the draft's
- * `chats/folders/verbs/chatOverrides`. Returns `undefined` (already `notify`-ing) on
- * cancel, empty scope, or zero verbs.
+ * Membership and per-chat r/w are chosen in one screen — there is no separate permissions
+ * editor. Hydrates the id-keyed selection from `current` for re-entrancy, then projects the
+ * committed model back onto the draft. Returns `undefined` on cancel, empty scope or zero
+ * verbs.
  */
 export const runAccessEditor = async (
   ui: SetupUi,
@@ -231,10 +189,11 @@ export const runAccessEditor = async (
     chatOverrides: current?.chatOverrides ?? [],
   };
 
-  // Stored refs the live account no longer has (a chat left, a folder/username
-  // renamed) can't be pre-checked and would DROP silently on commit. Surface
-  // them for an explicit decision before the picker opens — declining keeps the
-  // endpoint untouched rather than quietly narrowing its scope.
+  /**
+   * Stored refs the live account no longer has cannot be pre-checked and would drop silently on
+   * commit. Surface them for an explicit decision before the picker opens — declining keeps the
+   * endpoint untouched.
+   */
   const unmatched = unmatchedPickerRefs(scope, enumeration);
   if (unmatched.chats.length > 0 || unmatched.folders.length > 0) {
     const items = [...unmatched.folders.map((f) => `folder ${f}`), ...unmatched.chats];
@@ -277,7 +236,6 @@ export const runAccessEditor = async (
   };
 };
 
-/** Ask whether writes require human confirmation (HITL); keeps the current value on cancel. */
 export const promptConfirmWrites = async (
   ui: SetupUi,
   current: boolean,
@@ -289,22 +247,15 @@ export const promptConfirmWrites = async (
   return result.kind === 'submitted' ? result.value : current;
 };
 
-/**
- * Mint a fresh endpoint API key as a matched pair `{ token, tokenHash }` from the same
- * token. The plaintext `token` is transient (shown once + inlined into the exit config);
- * only the salted `tokenHash` is persisted (the auth gate). Both derive from one
- * `mintEndpointToken()` so they can never drift.
- */
+// Token and hash derive from one `mintEndpointToken()` so they can never drift. The plaintext
+// is transient; only the salted hash is persisted.
 export const mintEndpointKey = (): { token: string; tokenHash: string } => {
   const token = mintEndpointToken();
   return { token, tokenHash: hashEndpointToken(token) };
 };
 
-/**
- * The shown-once API-key notice: the copyable plaintext key, where to paste it, and the
- * honest "not stored" caveat. One definition shared by the create wizard and the edit hub's
- * key spoke, so the copy + env-var name never drift. The plaintext is only held transiently.
- */
+// One definition shared by the create wizard and the hub's key spoke, so the copy and the
+// env-var name never drift.
 export const apiKeyNotice = (name: string, token: string): NoticeRequest => ({
   title: `API key for "${name}" (shown once)`,
   body: [

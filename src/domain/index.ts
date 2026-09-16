@@ -1,4 +1,3 @@
-/** Domain public surface — outer layers import the domain through this barrel. */
 
 export { DomainErrorCode, domainError } from './errors.js';
 export type { DomainError } from './errors.js';
@@ -32,7 +31,7 @@ export type { DeclaredChatVerbOverride } from './entities/endpoint.js';
 
 export type {
   AclEvaluationInput,
-} from './services/acl-evaluator.js';
+} from './services/default-acl-evaluator.js';
 export { DefaultAclEvaluator } from './services/default-acl-evaluator.js';
 export {
   effectiveVerbPermits,

@@ -1,19 +1,7 @@
 /**
- * run-setup-app — the single persistent Ink application for the whole setup wizard.
- *
- * One `render(<SetupApp/>)` owns `process.stdin` from the first main-menu frame to the
- * final "Goodbye": no readline `Console`, no second `render()` per prompt. The flow
- * (setup.ts) is handed a `SetupUi` and awaits screens; each call sets the app's active
- * request (router state) and the app renders the matching screen, resolving the promise
- * when the operator acts. Only one Ink runtime ever binds raw mode.
- *
- * The existing screens are reused as router spokes: the arrow-nav `MenuScreen`, the
- * pruned-tree `PickerScreen` + `ReviewScreen` (via `AccessPickerHost`), and the thin
- * `@inkjs/ui` input wrappers. Ink/React live only on this lazy path; `connect` never imports it.
- *
- * Renders to STDERR (the alt-screen guard likewise), keeping STDOUT reserved for the
- * copy-paste client-config block. On a non-TTY the guard is a no-op, but the flow never
- * mounts this app off a TTY (setup branches earlier).
+ * The single persistent Ink application for the whole setup wizard: one `render(<SetupApp/>)`
+ * owns `process.stdin` from the first main-menu frame to the final goodbye — no readline
+ * console, no second `render()` per prompt.
  */
 import { useEffect, useReducer, useState, type FC } from 'react';
 import { Box, Text, render, useInput } from 'ink';
@@ -41,9 +29,9 @@ import {
 import { colorProps, defaultTheme } from './theme.js';
 
 /**
- * @inkjs/ui theme: its stock Spinner frame is ANSI `blue` — near-invisible on dark
- * terminals. Point the frame at our accent token instead; under NO_COLOR the token
- * is undefined and the frame renders in the terminal default like everything else.
+ * @inkjs/ui's stock Spinner frame is ANSI blue, near-invisible on dark terminals, so point the
+ * frame at our accent token. Under NO_COLOR the token is undefined and it renders in the
+ * terminal default.
  */
 const inkUiBrandTheme = extendTheme(inkUiTheme, {
   components: {
@@ -70,36 +58,20 @@ import type {
   TextPromptRequest,
 } from './setup-ui-port.js';
 
-// Router state — the discriminated "which screen is active" union. Exactly one is
-// mounted at a time; `undefined` means the flow is between screens (or doing async work
-// without a spinner), so only the transcript shows.
+// Exactly one screen is mounted at a time; `undefined` means the flow is between screens, or
+// doing async work without a spinner, so only the transcript shows.
+interface ScreenRequest<Kind extends string, Request, Result> {
+  readonly kind: Kind;
+  readonly request: Request;
+  readonly resolve: (result: Result) => void;
+}
 
 type ActiveRequest =
-  | {
-      readonly kind: 'menu';
-      readonly request: MenuRequest<unknown>;
-      readonly resolve: (result: MenuResult<unknown>) => void;
-    }
-  | {
-      readonly kind: 'text';
-      readonly request: TextPromptRequest;
-      readonly resolve: (result: PromptResult<string>) => void;
-    }
-  | {
-      readonly kind: 'password';
-      readonly request: PasswordPromptRequest;
-      readonly resolve: (result: PromptResult<string>) => void;
-    }
-  | {
-      readonly kind: 'confirm';
-      readonly request: ConfirmPromptRequest;
-      readonly resolve: (result: PromptResult<boolean>) => void;
-    }
-  | {
-      readonly kind: 'picker';
-      readonly request: AccessPickerRequest;
-      readonly resolve: (result: AccessPickerResult) => void;
-    }
+  | ScreenRequest<'menu', MenuRequest<unknown>, MenuResult<unknown>>
+  | ScreenRequest<'text', TextPromptRequest, PromptResult<string>>
+  | ScreenRequest<'password', PasswordPromptRequest, PromptResult<string>>
+  | ScreenRequest<'confirm', ConfirmPromptRequest, PromptResult<boolean>>
+  | ScreenRequest<'picker', AccessPickerRequest, AccessPickerResult>
   | { readonly kind: 'busy'; readonly label: string }
   | { readonly kind: 'qr'; readonly request: QrRequest }
   | {
@@ -108,18 +80,14 @@ type ActiveRequest =
       readonly resolve: () => void;
     };
 
-// The controller — the bridge between the outside-React async flow and the
-// inside-React router state. The flow calls its `SetupUi` methods; each sets the active
-// request via `emit` and returns a promise resolved by the mounted screen. The app
-// binds `emit`/`pushStatus` on mount.
-
+// The bridge between the outside-React async flow and the router state: each `SetupUi` method
+// publishes the active request and returns a promise that the mounted screen resolves.
 export class SetupUiController implements SetupUi {
   private emit: (request: ActiveRequest | undefined) => void = () => undefined;
   private pushStatus: (item: StatusItem) => void = () => undefined;
-  /** Monotonic id source for status items — a stable React key across eviction. */
+  // Monotonic id source for status items — a stable React key across eviction.
   private seq = 0;
 
-  /** Wire the controller to the mounted app's state setters (called in an effect). */
   public bind(
     emit: (request: ActiveRequest | undefined) => void,
     pushStatus: (item: StatusItem) => void,
@@ -128,13 +96,8 @@ export class SetupUiController implements SetupUi {
     this.pushStatus = pushStatus;
   }
 
-  /**
-   * The shared promise-router for every blocking screen request: publish the
-   * ActiveRequest, then (when the mounted screen calls back) clear it and resolve the
-   * awaited promise. The typed public methods below are one-line wrappers; the single
-   * localized cast pins the per-`kind` request/resolve correlation the discriminated
-   * union encodes.
-   */
+  // Publishes the ActiveRequest, then clears it and resolves the awaited promise once the
+  // mounted screen calls back. The typed public methods are one-line wrappers over it.
   private request<Res>(kind: ActiveRequest['kind'], request: unknown): Promise<Res> {
     return new Promise<Res>((resolve) => {
       this.emit({
@@ -173,9 +136,11 @@ export class SetupUiController implements SetupUi {
   }
 
   public notify(line: string): void {
-    // One visual row per item (the fixed STATUS_CAP-height area evicts by item count,
-    // not row count). Collapse embedded newlines so a stray multi-line payload can never
-    // consume the whole budget and clip newer status.
+    /**
+     * One visual row per item — the fixed-height status area evicts by item count, not row
+     * count — so embedded newlines are collapsed and a stray multi-line payload can never
+     * consume the whole budget.
+     */
     const oneLine = line.replace(/\s*\n\s*/g, ' ').trim();
     this.pushStatus({ id: this.seq++, text: oneLine });
   }
@@ -193,8 +158,6 @@ export class SetupUiController implements SetupUi {
     }
   }
 }
-
-// The router view — maps the active request onto its screen (pure switch).
 
 const ActiveScreen: FC<{ readonly active: ActiveRequest | undefined }> = ({
   active,
@@ -229,11 +192,8 @@ const ActiveScreen: FC<{ readonly active: ActiveRequest | undefined }> = ({
   }
 };
 
-/**
- * QrScreen — renders a login QR as one screen (never the capped note tail, so the code
- * is never truncated) at full contrast (a dim colour makes it unscannable). Only the
- * footer (URL / PNG path / countdown) is dimmed.
- */
+// Renders a login QR as one screen, never the capped note tail that truncated it, and at full
+// contrast since a dim colour leaves it unscannable. Only the footer is dimmed.
 export const QrScreen: FC<{ readonly request: QrRequest }> = ({ request }) => {
   const countdown = useQrCountdown(request.expiresAtMs);
   return (
@@ -300,11 +260,12 @@ export const EphemeralStatus: FC<{ readonly items: readonly StatusItem[] }> = ({
     overflow="hidden"
   >
     {items.map((item) => {
-      // `id` is a stable key that survives eviction re-indexing (unlike an array index,
-      // which shifts as the oldest item drops off). Tone follows the pure classifier:
-      // failures in the error tint, cancellations dimmed, everything else at the
-      // default foreground; the fixed height + below-the-menu placement keep it
-      // unobtrusive.
+      /**
+       * `id` is a stable key that survives eviction re-indexing (unlike an array index, which
+       * shifts as the oldest item drops off). Tone follows the pure classifier: failures in the
+       * error tint, cancellations dimmed, everything else at the default foreground; the fixed
+       * height + below-the-menu placement keep it unobtrusive.
+       */
       const tone = classifyStatusTone(item.text);
       const token =
         tone === 'error'
@@ -322,7 +283,6 @@ export const EphemeralStatus: FC<{ readonly items: readonly StatusItem[] }> = ({
 );
 
 // The app — the single mounted component: ephemeral status lane + active screen.
-
 interface SetupAppProps {
   readonly controller: SetupUiController;
   readonly run: (ui: SetupUi) => Promise<void>;
@@ -345,11 +305,13 @@ export const SetupApp: FC<SetupAppProps> = ({
   // capped/self-evicting at STATUS_CAP.
   const [status, dispatch] = useReducer(reduceStatus, []);
 
-  // Root-level Ctrl-C: Ink holds stdin in raw mode (ISIG off), so an interactive Ctrl-C
-  // arrives as byte 0x03 rather than a SIGINT signal — the guard's SIGINT handler never
-  // sees it. Route the raw byte through the guard's synchronous restore +
-  // exit path. OS teardown then closes Telegram and the ownership sentinel as
-  // one operation, even while QR login or another network wait is in flight.
+  /**
+   * Root-level Ctrl-C: Ink holds stdin in raw mode (ISIG off), so an interactive Ctrl-C arrives
+   * as byte 0x03 rather than a SIGINT signal — the guard's SIGINT handler never sees it. Route
+   * the raw byte through the guard's synchronous restore + exit path. OS teardown then closes
+   * Telegram and the ownership sentinel as one operation, even while QR login or another
+   * network wait is in flight.
+   */
   useInput((input, key) => {
     if (key.ctrl && input === 'c') {
       onInterrupt();
@@ -360,9 +322,11 @@ export const SetupApp: FC<SetupAppProps> = ({
     controller.bind(
       (request): void => {
         setActive(request);
-        // Context change: dismissing a screen (emit(undefined)) makes the status it
-        // produced stale, so clear it. One hook on the shared screen-dismiss path — no
-        // timers, no TTL. A line lives until the user's next action, never past its context.
+        /**
+         * Context change: dismissing a screen (emit(undefined)) makes the status it produced
+         * stale, so clear it. One hook on the shared screen-dismiss path — no timers, no TTL. A
+         * line lives until the user's next action, never past its context.
+         */
         if (request === undefined) {
           dispatch({ type: 'clear' });
         }
@@ -371,9 +335,11 @@ export const SetupApp: FC<SetupAppProps> = ({
         dispatch({ type: 'push', item });
       },
     );
-    // The flow uses `Result` types, but an infra call could still reject (network/fs)
-    // inside `ui.status`. Send the full error to the debug file, surface a terse
-    // ephemeral line, and propagate it to the composition root's fail-stop path.
+    /**
+     * The flow uses `Result` types, but an infra call could still reject (network/fs) inside
+     * `ui.status`. Send the full error to the debug file, surface a terse ephemeral line, and
+     * propagate it to the composition root's fail-stop path.
+     */
     void run(controller).then(
       (): void => {
         onComplete({ ok: true });
@@ -391,14 +357,18 @@ export const SetupApp: FC<SetupAppProps> = ({
     );
   }, [controller, run, onComplete]);
 
-  // The picker is a full-screen mode. Rendering the rolling transcript above it would
-  // make the frame taller than the terminal — and Ink redraws in place by moving the
-  // cursor up over the previous frame, so a frame that does not fit the screen cannot be
-  // erased and gets appended instead. So while the picker is mounted it owns the whole screen.
+  /**
+   * The picker is a full-screen mode. Rendering the rolling transcript above it would make the
+   * frame taller than the terminal — and Ink redraws in place by moving the cursor up over the
+   * previous frame, so a frame that does not fit the screen cannot be erased and gets appended
+   * instead. So while the picker is mounted it owns the whole screen.
+   */
   const fullScreen = active?.kind === 'picker';
-  // Full-screen and must-read screens own the whole frame. Reserving the empty
-  // status lane below a QR can push its final rows beyond the terminal and make
-  // Ink append the next prompt instead of replacing it.
+  /**
+   * Full-screen and must-read screens own the whole frame. Reserving the empty status lane
+   * below a QR can push its final rows beyond the terminal and make Ink append the next prompt
+   * instead of replacing it.
+   */
   const showStatus =
     !fullScreen && active?.kind !== 'notice' && active?.kind !== 'qr';
   return (

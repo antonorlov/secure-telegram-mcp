@@ -1,22 +1,8 @@
 /**
- * Exhaustive ACL-evaluation security suite.
- *
- * This file pins the NON-NEGOTIABLE security invariants of the inner-most
- * authorization primitive (`DefaultAclEvaluator`) so they cannot silently regress:
- *
- *   #1 SCOPED-CLIENT / fail-closed: out-of-scope peers are denied, and an
- *      empty allow-list (e.g. a folder that resolved to 0 peers) is physically
- *      unrepresentable — `ResolvedScope.create([])` fails closed.
- *   #3 VERB-GATED: a verb is allowed only if the endpoint's virtual group
- *      grants it; default-deny otherwise. The granted set IS the ACL.
- *   #6 No untrusted prose in a decision: denials carry a machine-readable
- *      DomainErrorCode + a static, non-sensitive message only.
- *   #10 KILL-SWITCH: the daemon-wide denied set (`deniedVerbs`) SUBTRACTS from
- *      every grant at evaluation time — including a per-chat override that
- *      escalated above the group.
- *
- * Because the evaluator is a PURE domain service with no I/O ports, we exercise
- * it against REAL domain value objects (faking them would weaken the invariant).
+ * Exhaustive ACL-evaluation suite pinning the non-negotiable invariants of the innermost
+ * authorization primitive: out-of-scope peers are denied, an empty allow-list is physically
+ * unrepresentable because `ResolvedScope.create([])` fails closed, and a verb is granted only
+ * when the effective set contains it.
  */
 import { describe, it, expect } from 'vitest';
 import { unwrap, isErr } from '../../src/shared/result.js';
@@ -37,8 +23,6 @@ import type {
   AclEvaluationInput,
 } from '../../src/domain/index.js';
 
-// --- fixtures -------------------------------------------------------------
-
 const inScope: ChatId = unwrap(ChatId.create(100n));
 const alsoInScope: ChatId = unwrap(ChatId.create(200n));
 const outOfScope: ChatId = unwrap(ChatId.create(999n));
@@ -46,7 +30,7 @@ const resolvedScope: ResolvedScope = unwrap(
   ResolvedScope.create([inScope, alsoInScope]),
 );
 
-/** Build an endpoint that grants EXACTLY `verbs` (else nothing). */
+// Build an endpoint that grants EXACTLY `verbs` (else nothing).
 const endpointGranting = (verbs: readonly PermissionVerb[]): Endpoint =>
   Endpoint.create({
     name: unwrap(EndpointName.create('endpoint')),
@@ -61,7 +45,7 @@ const endpointGranting = (verbs: readonly PermissionVerb[]): Endpoint =>
 
 const evaluator = new DefaultAclEvaluator();
 
-/** exactOptionalPropertyTypes-safe input builder (omit `target` when absent). */
+// exactOptionalPropertyTypes-safe input builder (omit `target` when absent).
 const decide = (
   endpoint: Endpoint,
   verb: PermissionVerb,
@@ -73,8 +57,6 @@ const decide = (
       : { endpoint, resolvedScope, verb, target };
   return evaluator.evaluate(input);
 };
-
-// --- #3 default-deny ------------------------------------------------------
 
 describe('ACL #3 — default-deny verb gate', () => {
   it('an endpoint that grants nothing denies EVERY verb in the vocabulary', () => {
@@ -119,8 +101,6 @@ describe('ACL #3 — default-deny verb gate', () => {
   });
 });
 
-// --- verb-merge -----------------------------------------------------------
-
 describe('ACL — verb-merge (least-privilege composition)', () => {
   it('grants each verb in a multi-verb group independently, with no shadowing', () => {
     const granted = [
@@ -151,8 +131,6 @@ describe('ACL — verb-merge (least-privilege composition)', () => {
     }
   });
 });
-
-// --- #1 scope gate (out-of-scope) -----------------------------------------
 
 describe('ACL #1 — scope gate denies out-of-scope peers', () => {
   it('denies a GRANTED verb when the target is outside the resolved allow-list', () => {
@@ -199,8 +177,6 @@ describe('ACL #1 — scope gate denies out-of-scope peers', () => {
   });
 });
 
-// --- #1 / #5 fail-closed resolved scope (folder -> 0 peers) ---------------
-
 describe('ACL #1/#5 — fail-closed empty scope (folder resolves to 0 peers)', () => {
   it('refuses to build a ResolvedScope from an empty allow-list (no allow-all)', () => {
     const result = ResolvedScope.create([]);
@@ -218,8 +194,6 @@ describe('ACL #1/#5 — fail-closed empty scope (folder resolves to 0 peers)', (
     expect(scope.contains(alsoInScope)).toBe(false);
   });
 });
-
-// --- #10 kill-switch (deniedVerbs) and per-chat overrides ------------------
 
 describe('ACL #10 — deniedVerbs subtracts from every grant (daemon kill-switch)', () => {
   it('deniedVerbs SUBTRACTS a granted verb (the kill-switch at execution)', () => {
@@ -276,8 +250,6 @@ describe('ACL #10 — deniedVerbs subtracts from every grant (daemon kill-switch
     expect(killed.allowed).toBe(false);
   });
 });
-
-// --- #6 decision shape: machine-readable, no untrusted prose, immutable ----
 
 describe('ACL #6 — decision is structured, non-sensitive, immutable', () => {
   it('allow decisions echo the verb, carry no reason, and are frozen', () => {

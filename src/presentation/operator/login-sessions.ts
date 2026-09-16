@@ -7,12 +7,9 @@ import {
 } from '../../application/index.js';
 import type { SessionRefValue } from '../../domain/index.js';
 import { err, isErr, ok, type Result } from '../../shared/index.js';
+import type { OperatorLoginInput, OperatorLoginResult } from './protocol.js';
 
-interface LoginAccount {
-  readonly id: string;
-  readonly displayName: string;
-  readonly username?: string;
-}
+type LoginAccount = OperatorLoginResult['account'];
 
 export interface OperatorLoginClient {
   connect(): Promise<Result<void, AppError>>;
@@ -59,7 +56,7 @@ interface LoginStore extends SessionAdmin {
 
 const keyOf = (ownerId: string, flowId: string): string => `${ownerId}:${flowId}`;
 
-/** Temporary unscoped login capabilities, owned and cleaned up per operator socket. */
+// Temporary unscoped login capabilities, owned and cleaned up per operator socket.
 export class OperatorLoginSessions {
   private readonly pending = new Map<string, PendingLogin>();
   private readonly clients = new Set<OperatorLoginClient>();
@@ -80,13 +77,9 @@ export class OperatorLoginSessions {
   public async begin(
     ownerId: string,
     flowId: string,
-    input: {
-      readonly apiId: number;
-      readonly apiHash: string;
-      readonly method: 'qr' | 'phone';
-    },
+    input: OperatorLoginInput,
     interaction: LoginInteraction,
-  ): Promise<Result<{ readonly flowId: string; readonly account: LoginAccount }, AppError>> {
+  ): Promise<Result<OperatorLoginResult, AppError>> {
     const key = keyOf(ownerId, flowId);
     if (this.pending.has(key)) {
       return err(appError(AppErrorCode.Validation, 'login flow already exists'));
@@ -215,7 +208,7 @@ export class OperatorLoginSessions {
     if (failed !== undefined) throw failed.reason;
   }
 
-  /** Memoize concurrent teardown; retain failed ownership for shutdown reporting. */
+  // Memoize concurrent teardown; retain failed ownership for shutdown reporting.
   private disposeClient(client: OperatorLoginClient): Promise<void> {
     const existing = this.disposing.get(client);
     if (existing !== undefined) return existing;

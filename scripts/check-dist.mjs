@@ -43,9 +43,11 @@ const stale = [];
 const unknown = [];
 for (const file of walk(DIST)) {
   const rel = relative(DIST, file);
-  // Every emitted artifact maps back to one TS source: x.js / x.d.ts /
-  // x.js.map / x.d.ts.map <- x.ts or x.tsx. `files: ["dist"]` ships the WHOLE
-  // directory, so anything else in dist/ would be published too — reject it.
+  /**
+   * Every emitted artifact maps back to one TS source: x.js / x.d.ts / x.js.map / x.d.ts.map <-
+   * x.ts or x.tsx. `files: ["dist"]` ships the WHOLE directory, so anything else in dist/ would
+   * be published too — reject it.
+   */
   const base = rel.replace(/\.(?:d\.ts|js)(?:\.map)?$/, '');
   if (base === rel) {
     unknown.push(rel);

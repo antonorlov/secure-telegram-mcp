@@ -1,18 +1,8 @@
 /**
- * ATOMIC POLICY APPLY (socket level) — a real, unlocked daemon over a unix
- * socket, HARDENED posture, NO session file (nothing reaches Telegram). All
- * synthetic ENGLISH fixtures + fake ids; NO real data, NO Cyrillic.
- *
- * The daemon's ENFORCED repo is a REAL SealedPolicyRepository bound to the
- * daemon's shared store. Under the STATIC full menu the tool list never changes
- * across an apply; apply re-resolves the per-chat EXECUTION ACL. We
- * assert:
- *   1. applying a config that grants send keeps the STATIC full set while the
- *      grant takes effect on the next call, with no reconnect or re-list;
- *   2. an unapplied draft edit has no effect: the sealed read-only policy
- *      still governs execution, so a still-open connection's send is refused;
- *   3. a narrowed apply rejects a still-open connection's next write, with no
- *      reconnect and no menu change.
+ * Atomic policy apply at socket level: a real, unlocked daemon over a unix socket in HARDENED
+ * posture with no session file, so nothing can reach Telegram. The enforced repo is a real
+ * SealedPolicyRepository, the static menu never changes across an apply, and apply re-resolves
+ * the per-chat execution policy.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -38,13 +28,13 @@ import { daemon } from '../../src/presentation/mcp/daemon.js';
 import { OperatorClient } from '../../src/presentation/operator/client.js';
 import { applyConfigDraftForTest } from '../security/sealed-policy/_support.js';
 
-/** Cheap scrypt cost so hardening the posture in tests is instant. */
+// Cheap scrypt cost so hardening the posture in tests is instant.
 const CHEAP = {
   pin: { N: 1 << 8, r: 8, p: 1 },
   machine: { N: 1 << 8, r: 8, p: 1 },
 };
 
-/** Minimal newline-delimited-JSON MCP client transport over a net.Socket. */
+// Minimal newline-delimited-JSON MCP client transport over a net.Socket.
 class SocketClientTransport {
   private socket: Socket | undefined;
   private buf = Buffer.alloc(0);
@@ -78,7 +68,7 @@ class SocketClientTransport {
         try {
           this.onmessage?.(JSON.parse(line));
         } catch {
-          /* a non-JSON refusal line — ignore */
+          // a non-JSON refusal line — ignore
         }
       }
       nl = this.buf.indexOf(0x0a);
@@ -117,7 +107,7 @@ describe('atomic policy apply over the operator socket', () => {
     );
   };
 
-  /** Build a real SealedPolicyRepository bound to a sealed-policy store. */
+  // Build a real SealedPolicyRepository bound to a sealed-policy store.
   const policyRepoFor = (
     store: SealedPolicyStore,
   ): ConfigRepository =>
@@ -183,10 +173,8 @@ describe('atomic policy apply over the operator socket', () => {
     return tools.map((t) => t.name).sort();
   };
 
-  /**
-   * Start a hardened+locked daemon whose ENFORCED repo is a REAL
-   * SealedPolicyRepository, then authenticate over the separate operator plane.
-   */
+  // Start a hardened+locked daemon whose ENFORCED repo is a REAL SealedPolicyRepository, then
+  // authenticate over the separate operator plane.
   const startUnlockedDaemon = async (): Promise<OperatorClient> => {
     const plain = new FileConfigRepository({ filePath: configPath });
     void daemon({
@@ -211,9 +199,11 @@ describe('atomic policy apply over the operator socket', () => {
     return operator;
   };
 
-  // The STATIC full menu: every non-forbidden tool is listed for EVERY endpoint,
-  // regardless of its verbs or the kill-switch. A policy apply (widen OR
-  // narrow) NEVER changes the menu — it re-resolves the per-chat EXECUTION ACL.
+  /**
+   * The STATIC full menu: every non-forbidden tool is listed for EVERY endpoint, regardless of
+   * its verbs or the kill-switch. A policy apply (widen OR narrow) NEVER changes the menu — it
+   * re-resolves the per-chat EXECUTION ACL.
+   */
   const FULL_MENU = [
     'get_messages', 'search_messages', 'list_dialogs', 'list_topics', 'get_chat_info',
     'get_media_info', 'get_pinned_messages', 'list_participants', 'download_media',
@@ -247,9 +237,11 @@ describe('atomic policy apply over the operator socket', () => {
       );
       expect(applied.ok).toBe(true);
 
-      // The menu is still the static full set (an apply never re-lists tools). The
-      // newly-granted send takes effect at the next tool CALL via the cleared
-      // context cache — with NO reconnect and no re-list.
+      /**
+       * The menu is still the static full set (an apply never re-lists tools). The
+       * newly-granted send takes effect at the next tool CALL via the cleared context cache —
+       * with NO reconnect and no re-list.
+       */
       const after = await listToolNames();
       expect(after).toEqual(FULL_MENU);
       operator.close();
@@ -309,9 +301,11 @@ describe('atomic policy apply over the operator socket', () => {
         ).ok,
       ).toBe(true);
 
-      // The SAME still-open connection: a write is REFUSED. Execution binds the
-      // freshly-opened sealed context (contexts clear in the publish frame),
-      // NOT a stale one — narrowing takes effect at the next call with NO reconnect.
+      /**
+       * The SAME still-open connection: a write is REFUSED. Execution binds the freshly-opened
+       * sealed context (contexts clear in the publish frame), NOT a stale one — narrowing takes
+       * effect at the next call with NO reconnect.
+       */
       const res = await live.callTool({
         name: 'send_message',
         arguments: { peer: { kind: 'me' }, text: 'blocked' },

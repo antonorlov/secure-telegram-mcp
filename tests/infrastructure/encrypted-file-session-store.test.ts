@@ -1,14 +1,7 @@
 /**
- * EncryptedFileSessionStore — DIRECT-slot v2 DEK-over-slots behaviour (no
- * app-key indirection). Exercises the persistence + secret-acquisition layer
- * around SessionEnvelopeCodec: posture round-trips (SMOOTH/HARDENED), the
- * no-machine-fallthrough unlock rule, channel precedence, the setup-only posture
- * mutators (each re-sealing every blob directly under the new slot set), the
- * hardened-has-no-machine-slot invariant, recovery-keyfile export, the sealed
- * policy blob, and api-cred round-trip.
- *
- * A CHEAP scrypt profile is injected so the suite stays fast; the codec is
- * parameter-agnostic so a tiny N exercises every path identically.
+ * Direct-slot v2 DEK-over-slots behaviour: posture round-trips, the no-machine-fallthrough
+ * unlock rule, channel precedence, the setup-only posture mutators that re-seal every blob
+ * under the new slot set, the hardened-has-no-machine-slot invariant, and recovery export.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
@@ -189,10 +182,11 @@ describe('EncryptedFileSessionStore — HARDENED (passphrase) posture', () => {
 });
 
 describe('EncryptedFileSessionStore — unlock precedence & no fallthrough', () => {
-  // Channel PRECEDENCE is resolved eagerly in the composition root (main.ts):
-  // the store is handed the SINGLE winning source. These tests pin the store's
-  // half of the contract — given that one source, a PIN never silently falls
-  // through to the machine slot.
+  /**
+   * Channel PRECEDENCE is resolved eagerly in the composition root (main.ts): the store is
+   * handed the SINGLE winning source. These tests pin the store's half of the contract — given
+   * that one source, a PIN never silently falls through to the machine slot.
+   */
   it('a PIN source NEVER falls through to a machine slot (SMOOTH blob + PIN supplied => fail)', async () => {
     // Seal SMOOTH (machine slot only) on host-1.
     const store = makeStore({

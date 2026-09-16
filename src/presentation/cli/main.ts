@@ -1,11 +1,7 @@
 /**
- * CLI entrypoint / bin dispatcher. `setup` is an operator UI, `connect` is the
- * stdio shim, and the hidden daemon worker is the sole Telegram owner. A
- * thin composition shell — reads operator-supplied, out-of-band configuration from the
- * environment (never from the model) and hands fully-formed options to each flow.
- *
- * Never write protocol-irrelevant output to STDOUT; stdout is reserved for the
- * MCP stdio transport on `connect`. Diagnostics go to STDERR.
+ * CLI entrypoint and bin dispatcher: `setup` is an operator UI, `connect` the stdio shim, and
+ * the hidden daemon worker the sole Telegram owner. A thin composition shell that reads
+ * out-of-band configuration from the environment.
  */
 import {
   defaultConfigPath,
@@ -62,17 +58,17 @@ Optional environment:
   ${ENDPOINT_TOKEN_ENV}  The endpoint's API key (required to connect)
 `;
 
-/** An env var is "present" when defined at all — even empty (empty != unset). */
+// An env var is "present" when defined at all — even empty (empty != unset).
 const present = (name: string): string | undefined => process.env[name];
 
-/** Strip a single trailing newline (the documented *_FILE write convention). */
+// Strip a single trailing newline (the documented *_FILE write convention).
 const stripTrailingNewline = (value: string): string =>
   value.replace(/\r?\n$/, '');
 
 /**
- * Read a passphrase from a 0600 *_FILE: the file contents are the secret. The trailing
- * newline most editors/`echo` add is stripped; an empty/whitespace result is rejected
- * (an empty file is a misconfiguration, never "unset").
+ * The file's contents are the secret. The trailing newline most editors and `echo` add is
+ * stripped, and an empty or whitespace result is rejected — an empty file is a
+ * misconfiguration, never "unset".
  */
 const readPassphraseFile = async (
   name: string,
@@ -100,12 +96,10 @@ const readPassphraseFile = async (
 };
 
 /**
- * Resolve the out-of-band session unlock material from the environment.
- *
- * Returns `undefined` when no unlock channel is supplied (the caller falls back to the
- * machine-bound key — SMOOTH posture). Channel precedence, highest first: PASSPHRASE_FILE
- * -> PASSPHRASE -> KEYFILE. A channel that is present but empty/whitespace is fail-closed
- * (rejected), never treated as unset — no silent fall-through to the machine key.
+ * Resolves the out-of-band session unlock material from the environment, or `undefined` when no
+ * channel is supplied — the caller then falls back to the machine-bound key, the SMOOTH
+ * posture. Channels are tried in a fixed precedence order, the file form before the inline
+ * value.
  */
 const sessionKeyFromEnv = async (): Promise<SessionKeySource | undefined> => {
   const passFile = present('TELEGRAM_MCP_SESSION_PASSPHRASE_FILE');
@@ -141,17 +135,9 @@ const sessionKeyFromEnv = async (): Promise<SessionKeySource | undefined> => {
 };
 
 /**
- * Read an optional Telegram app credential (api_id/api_hash) from the environment,
- * validated by the shared setup-prompt parser. `undefined` when unset/empty (the sealed
- * session is the source of truth).
- *
- * `strict` splits the two consumers on a present-but-malformed value (incl.
- * whitespace-only — the same trim/reject rule the passphrase channel enforces):
- * - daemon reads STRICT: the value overrides the sealed creds, so a bad override
- *   (`TELEGRAM_API_HASH="   "`) is rejected loud — a fail-closed misconfiguration.
- * - setup reads SOFT (pre-fill only): setup re-validates at the prompt, so a malformed
- *   or stale value is ignored and the operator is prompted — a leftover/typo'd
- *   `export TELEGRAM_API_HASH=...` never blocks onboarding.
+ * Reads an optional Telegram app credential, validated by the shared setup parser. `undefined`
+ * when unset or empty, since the sealed session is the source of truth; `strict` splits the two
+ * consumers on a present-but-malformed value.
  */
 const readApiEnv = <T>(
   name: string,
@@ -201,11 +187,11 @@ const main = async (argv: readonly string[]): Promise<void> => {
   switch (command) {
     case 'setup': {
       const { runSetup } = await import('./setup.js');
-      // Setup mints the sealed session. api creds are acquired interactively by runSetup
-      // (api_hash echo-off) so they never have to be `export`ed into shell history; any env
-      // value is passed as an optional pre-fill only. The interactive PIN prompt is
-      // likewise owned by runSetup, so with no unlock channel we pass the machine default.
-      // Pre-fill reads are soft: a malformed/stale export is ignored (the prompter re-validates).
+      /**
+       * Setup acquires the api creds interactively, api_hash echo-off, so they never have to be
+       * exported into shell history; any env value is passed as a pre-fill only. The
+       * interactive PIN prompt is likewise owned by setup.
+       */
       const apiIdPrefill = readApiEnv('TELEGRAM_API_ID', parseApiId, false);
       const apiHashPrefill = readApiEnv('TELEGRAM_API_HASH', parseApiHash, false);
       await runSetup({
@@ -222,9 +208,11 @@ const main = async (argv: readonly string[]): Promise<void> => {
       // The thin shim MCP clients spawn: no Telegram inside — it finds (or
       // detaches-and-starts) the one daemon and pipes stdio <-> socket.
       const { connect } = await import('../mcp/connect.js');
-      // connect always establishes: a locked daemon still serves (tools/list works; calls
-      // return the secret-free lock error until `npx secure-telegram-mcp start`
-      // unlock). No preflight/refusal here.
+      /**
+       * connect always establishes: a locked daemon still serves (tools/list works; calls
+       * return the secret-free lock error until `npx secure-telegram-mcp start` unlock). No
+       * preflight/refusal here.
+       */
       await connect({
         sessionDir,
         ...(endpointToken !== undefined ? { endpointToken } : {}),
@@ -234,9 +222,11 @@ const main = async (argv: readonly string[]): Promise<void> => {
       return;
     }
     case 'start': {
-      // The public command is an operator action. The internal worker is the only
-      // process role that constructs the Telegram runtime; setup/connect spawn it
-      // detached with this explicit flag.
+      /**
+       * The public command is an operator action. The internal worker is the only process role
+       * that constructs the Telegram runtime; setup/connect spawn it detached with this
+       * explicit flag.
+       */
       if (!argv.includes('--worker')) {
         const operator = await operatorClient();
         try {
@@ -304,16 +294,18 @@ const main = async (argv: readonly string[]): Promise<void> => {
             mode: 0o600,
           });
         } catch {
-          /* logging must never take the daemon down */
+          // logging must never take the daemon down
         }
       };
       const daemonKey: SessionKeySource =
         (await sessionKeyFromEnv()) ?? { kind: 'machine' };
       const daemonConfig = new FileConfigRepository({ filePath: configPath });
       await daemon({
-        // Verify-before-use, re-keyable at runtime unlock: the enforced repo is bound to the
-        // daemon's one shared store and opens the sealed policy before execution.
-        // `plainConfigRepository` renders the locked-window tool-name menu from the draft only.
+        /**
+         * Verify-before-use, re-keyable at runtime unlock: the enforced repo is bound to the
+         * daemon's one shared store and opens the sealed policy before execution.
+         * `plainConfigRepository` renders the locked-window tool-name menu from the draft only.
+         */
         makeConfigRepository: (store) =>
           new SealedPolicyRepository({
             configPath,

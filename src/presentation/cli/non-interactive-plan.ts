@@ -1,11 +1,7 @@
 /**
- * Non-interactive plan — the contract for the non-TTY / `--no-input` / CI branch of `setup`.
- * The isatty check happens once at entry: a TTY launches the Ink wizard; a non-TTY must not
- * block on stdin — instead it prints the current config (endpoints + their scope) and exits
- * non-zero, so automation gets a deterministic, secret-safe summary.
- *
- * Framework-free + secret-safe: no Ink import; the formatter masks any session string/token
- * and never echoes secrets. Pure (string in, string out) so it is trivially unit-testable.
+ * The contract for the non-TTY, `--no-input` and CI branch of `setup`. The isatty check happens
+ * once at entry: a TTY launches the Ink wizard, while a non-TTY must not block on stdin, so it
+ * prints the current config and the equivalent flags and exits non-zero.
  */
 import type {
   ValidatedConfig,
@@ -13,17 +9,12 @@ import type {
 } from '../../config/index.js';
 import { isWriteVerb } from '../../domain/index.js';
 
-/** What the non-interactive branch was asked to do (drives the printed plan). */
 export interface NonInteractivePlanInput {
   readonly configPath: string;
   readonly sessionDir: string;
-  /** The current on-disk config, when one parses; absent on first run. */
   readonly config?: ValidatedConfig;
 }
 
-// Pure helpers (string in, string out — trivially unit-testable, no secrets)
-
-/** A human description block for one endpoint (scope + verbs, no secrets). */
 const endpointSummary = (endpoint: ValidatedEndpoint): readonly string[] => {
   const writable = endpoint.verbs.some(isWriteVerb);
   return [
@@ -35,12 +26,8 @@ const endpointSummary = (endpoint: ValidatedEndpoint): readonly string[] => {
   ];
 };
 
-/**
- * The non-interactive plan formatter. Pure + secret-safe: it reads only the already-validated
- * config (which never holds a session string or token) and the paths, so there is nothing to
- * mask beyond never printing those. Emits a deterministic, copy-pasteable plan the caller
- * writes to STDERR before exiting non-zero.
- */
+// Pure and secret-safe: it reads only the already-validated config, which never holds a session
+// string or token, so there is nothing to mask. The output is deterministic and copy-pasteable.
 export const formatNonInteractivePlan = (input: NonInteractivePlanInput): string => {
   const lines: string[] = [];
   lines.push('npx secure-telegram-mcp setup — NON-INTERACTIVE (no TTY)');

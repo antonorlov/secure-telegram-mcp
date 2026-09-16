@@ -30,10 +30,11 @@ afterEach(() => {
   delete process.env['TELEGRAM_MCP_DEBUG_LOG'];
 });
 
-// ---------------------------------------------------------------------------
-// Lane 1 — a diagnostic NEVER appears in ANY rendered frame, and lands in the FILE.
-// ---------------------------------------------------------------------------
-
+/**
+ * --------------------------------------------------------------------------- Lane 1 — a
+ * diagnostic NEVER appears in ANY rendered frame, and lands in the FILE.
+ * ---------------------------------------------------------------------------
+ */
 describe('lane 1 — developer diagnostics never reach a frame', () => {
   it('routes a wrong-password diagnostic to the debug FILE, never to any frame', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'tg-diag-'));
@@ -42,9 +43,11 @@ describe('lane 1 — developer diagnostics never reach a frame', () => {
 
     try {
       const controller = new SetupUiController();
-      // The flow mimics the account-login logger callback (lane 1) that used to
-      // be `ui.note('[telegram] …')` — now a direct file-sink call — followed by a
-      // real ephemeral status line the operator SHOULD see (lane 2).
+      /**
+       * The flow mimics the account-login logger callback (lane 1) that used to be
+       * `ui.note('[telegram] …')` — now a direct file-sink call — followed by a real ephemeral
+       * status line the operator SHOULD see (lane 2).
+       */
       const flow = (ui: SetupUi): Promise<void> => {
         debugLog('[telegram]', DIAGNOSTIC);
         ui.notify('Logged in as Ada.');
@@ -164,10 +167,11 @@ describe('setup host lifecycle', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Lanes 2/3 — the controller routes each intent to a DISTINCT sink (no render).
-// ---------------------------------------------------------------------------
-
+/**
+ * --------------------------------------------------------------------------- Lanes 2/3 — the
+ * controller routes each intent to a DISTINCT sink (no render).
+ * ---------------------------------------------------------------------------
+ */
 describe('SetupUiController — intent routing', () => {
   it('notify() pushes a status item; notice() emits a blocking screen; never crossed', async () => {
     const emitted: unknown[] = [];

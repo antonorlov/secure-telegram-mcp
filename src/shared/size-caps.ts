@@ -5,15 +5,15 @@
  * layer's job.
  */
 
-/** Max serialized structured-output bytes a single tool result may return. */
+// Max serialized structured-output bytes a single tool result may return.
 export const DEFAULT_MAX_OUTPUT_BYTES = 256 * 1024;
 
 export interface ByteCapResult {
-  /** Exact UTF-8 byte length measured. */
+  // Exact UTF-8 byte length measured.
   readonly byteLength: number;
-  /** The ceiling it was compared against. */
+  // The ceiling it was compared against.
   readonly maxBytes: number;
-  /** True iff `byteLength <= maxBytes`. */
+  // True iff `byteLength <= maxBytes`.
   readonly withinCap: boolean;
 }
 

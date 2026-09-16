@@ -17,7 +17,7 @@ interface FakeHost {
   readonly commands?: Readonly<Record<string, string>>;
 }
 
-/** Build an in-memory probe; absent files/commands resolve to `undefined`. */
+// Build an in-memory probe; absent files/commands resolve to `undefined`.
 const fakeProbe = (host: FakeHost): HostProbe => ({
   platform: host.platform,
   readText: (path: string): Promise<string | undefined> =>

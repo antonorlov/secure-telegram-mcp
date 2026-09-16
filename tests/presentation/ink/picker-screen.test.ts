@@ -30,7 +30,7 @@ import type { PickerScreenComponentProps } from '../../../src/presentation/cli/i
 
 const mono = createTheme({ colorsEnabled: false, unicodeGlyphs: false });
 
-/** Ink parses keypresses + React flushes on ticks, so await before asserting. */
+// Ink parses keypresses + React flushes on ticks, so await before asserting.
 const tick = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 25));
 
 const folder: FolderRow = {

@@ -1,14 +1,5 @@
-/**
- * Forum-topic tool surface — the presentation rules the schemas cannot express:
- *
- *  - search_messages: `topicId` requires `peer` (a topic lives inside ONE chat);
- *    the handler fails fast with VALIDATION before the use-case runs.
- *  - mark_read: `topicId` requires `maxMessageId` (Telegram has no whole-topic
- *    read form); same fail-fast rule.
- *  - list_topics: emits topic rows with the untrusted `topic_title` envelope
- *    and publishes the parent chat in `enumeratedPeers` for the registry's
- *    scope re-filter.
- */
+// The presentation rules the schemas cannot express: `topicId` requires `peer` for search and
+// `maxMessageId` for mark_read, both failing fast with VALIDATION before the use-case runs.
 import { describe, it, expect } from 'vitest';
 import { ok, err, type Result } from '../../src/shared/index.js';
 import {
@@ -31,9 +22,9 @@ import {
 } from '../../src/application/index.js';
 import type { UseCase } from '../../src/application/use-cases/use-case.js';
 import type { EndpointExecutionContext } from '../../src/application/use-cases/context.js';
-import { createListTopicsTool } from '../../src/presentation/mcp/tools/listTopics.js';
-import { createSearchMessagesTool } from '../../src/presentation/mcp/tools/searchMessages.js';
-import { createMarkReadTool } from '../../src/presentation/mcp/tools/markRead.js';
+import { createListTopicsTool } from '../../src/presentation/mcp/tools/read-tools.js';
+import { createSearchMessagesTool } from '../../src/presentation/mcp/tools/read-tools.js';
+import { createMarkReadTool } from '../../src/presentation/mcp/tools/write-tools.js';
 import {
   buildEndpoint,
   resolvedScope,
@@ -44,7 +35,7 @@ import {
 
 const IN_SCOPE_PEER = PeerRefFactory.fromId(IN_SCOPE);
 
-/** The full execution context a handler now receives (scoped client included). */
+// The full execution context a handler now receives (scoped client included).
 const execCtx = (client: SpyScopedClient): EndpointExecutionContext => ({
   endpoint: buildEndpoint({ verbs: [PermissionVerb.Read, PermissionVerb.MarkRead] }),
   resolvedScope: resolvedScope(),
@@ -53,7 +44,7 @@ const execCtx = (client: SpyScopedClient): EndpointExecutionContext => ({
   client,
 });
 
-/** A use-case double that records whether it was ever executed. */
+// A use-case double that records whether it was ever executed.
 class TrackingUseCase<I, O> implements UseCase<I, O> {
   public executions = 0;
   public constructor(

@@ -1,19 +1,7 @@
 /**
- * CredentialPrompter — interactive acquisition of the Telegram app credentials
- * for setup, driven against a FAKE console (the narrow `CredentialPromptConsole`
- * port). No TTY, no readline, no env reads.
- *
- * Contract asserted:
- *   - A present-and-valid env PRE-FILL is used WITHOUT prompting (CI/--env-file).
- *   - When no pre-fill is present, both fields are PROMPTED; the api_hash prompt
- *     is taken from the ECHO-OFF channel (`askSecret`), never the plain one.
- *   - Validation is enforced AT THE PROMPT: api_id must be a positive integer;
- *     api_hash must be 32 hex chars (case-insensitive, lenient); empty/whitespace
- *     is rejected and re-prompted with a clear message.
- *   - An invalid pre-fill is ignored (and announced) — we fall through to prompt.
- *   - The my.telegram.org guidance rides ON both prompt screens (`help`), so it
- *     stays visible WHILE the operator types (never a separate vanished notice).
- *   - Exhausting the re-prompt budget returns `undefined` (caller aborts).
+ * Interactive acquisition of the Telegram app credentials against a fake console — no TTY, no
+ * readline, no env reads: a present-and-valid pre-fill is used without prompting, and otherwise
+ * both fields are prompted, with api_hash on the echo-off channel.
  */
 import { describe, it, expect } from 'vitest';
 
@@ -26,15 +14,13 @@ import {
 
 const VALID_HASH = 'deadbeefdeadbeefdeadbeefdeadbeef';
 
-/**
- * A scripted fake console. `ask`/`askSecret` dequeue from their OWN queues so a
- * test can prove which channel a field was read from (echo-off vs. plain).
- */
+// A scripted fake console. `ask`/`askSecret` dequeue from their OWN queues so a test can prove
+// which channel a field was read from (echo-off vs. plain).
 class FakeConsole implements CredentialPromptConsole {
   public readonly prints: string[] = [];
   public readonly askedPlain: string[] = [];
   public readonly askedSecret: string[] = [];
-  /** The on-screen help block each prompt carried, flattened (one entry per ask). */
+  // The on-screen help block each prompt carried, flattened (one entry per ask).
   public readonly helpPlain: string[] = [];
   public readonly helpSecret: string[] = [];
 

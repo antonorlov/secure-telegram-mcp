@@ -1,4 +1,4 @@
-/** SystemClock — monotonic durations plus wall-clock audit timestamps. */
+// SystemClock — monotonic durations plus wall-clock audit timestamps.
 import { performance } from 'node:perf_hooks';
 
 import type { Clock } from '../../application/index.js';

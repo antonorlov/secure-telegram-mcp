@@ -1,24 +1,12 @@
 /**
- * GramjsTelegramGateway — the MTProto (userbot) adapter that mints ScopedClients.
- *
- * The ONE place an unscoped connection is permitted: scope resolution borrows
- * its narrow dialog-filter capability, then binding returns a `ScopedClient`
- * constrained to the endpoint's resolved allow-list. No unscoped client escapes
- * the infrastructure layer.
- *
- * ONE shared `TelegramClient` per sessionRef, created lazily on first use and
- * REUSED by every endpoint on the ref: Telegram's auth key must have one
- * owner-connection per process, so a client-per-endpoint risks
- * AUTH_KEY_DUPLICATED. Scoped clients never destroy the connection; the
- * daemon composition root closes it via `dispose()` at shutdown.
- *
- * Scope is enforced at the DATA LAYER: bind resolves every in-scope peer to a
- * cached `Api.TypeInputPeer`, and every op addresses Telegram only through that
- * cache, so an out-of-scope peer has no input handle and is unfetchable.
- * Membership is double-checked against `ResolvedScope.contains` (fail-closed).
- *
- * Encapsulation: `telegram` (`Api`/`TelegramClient`/`errors`) is imported here
- * and in `gramjs-mappers` ONLY; public methods speak in application DTOs.
+ * The MTProto adapter that mints ScopedClients, and the ONE place an unscoped connection is
+ * permitted: scope resolution borrows its narrow dialog-filter capability, then binding returns
+ * a client constrained to the endpoint's resolved allow-list. No unscoped client escapes this
+ * layer.
+ * ONE shared `TelegramClient` per sessionRef, created lazily and reused by every endpoint on
+ * the ref: Telegram's auth key must have a single owner-connection per process, so a
+ * client-per-endpoint risks AUTH_KEY_DUPLICATED. Scoped clients never destroy the connection —
+ * the composition root closes it via `dispose()`.
  */
 import { randomBytes } from 'node:crypto';
 import type { UnicodeSanitizer } from '../sanitize/unicode-sanitizer.js';
@@ -115,89 +103,57 @@ import type {
 } from './DialogFilterFolderResolver.js';
 import { readAccountSnapshot } from './gramjs-account-reader.js';
 
-// ---------------------------------------------------------------------------
-// Tunables & options
-// ---------------------------------------------------------------------------
-
 const DEFAULTS = {
-  /**
-   * FLOOD_WAIT below this many seconds is auto-slept by GramJS; at/above it it
-   * surfaces as `AppError(FloodWait)` so the RateLimiter and model can react.
-   */
+  // Below this GramJS auto-sleeps; at or above it the wait surfaces as `AppError(FloodWait)` so
+  // the rate limiter and the model can react.
   floodSleepThresholdSeconds: 10,
   connectionRetries: 5,
-  /** Hard cap on a single media file accepted by prepareMedia. */
+  // Hard cap on a single media file accepted by prepareMedia.
   maxMediaBytes: 50 * 1024 * 1024,
-  // Download egress cap default (operator DISK guard, not a security boundary) — the
-  // config's `maxDownloadBytes` overrides it. Mirrors the upload cap by default.
+  // Operator disk guard, not a security boundary; the config's `maxDownloadBytes` overrides it.
   maxDownloadBytes: 50 * 1024 * 1024,
-  /** Hard cap on items returned by a single read page. */
   maxPageItems: 100,
-  /** Two-phase media handle lifetime in milliseconds. */
   mediaHandleTtlMs: 5 * 60 * 1000,
 } as const;
 
-/**
- * Hard cap on simultaneously-live (unsent, unexpired) media handles per scoped
- * client — bounds the in-memory handle map against a flood of `prepare_media`.
- */
+// Bounds the in-memory handle map against a flood of `prepare_media`.
 const MAX_LIVE_MEDIA_HANDLES = 64;
-/** Hard cap on the best-effort idempotency replay cache (oldest evicted first). */
+// Best-effort idempotency replay cache; oldest evicted first.
 const MAX_IDEMPOTENCY_KEYS = 1024;
 
 export interface GramjsTelegramGatewayOptions {
-  /** Telegram application credentials (sealed session creds, env override applied). */
   readonly apiId: number;
   readonly apiHash: string;
-  /**
-   * Already-decrypted session string for this endpoint. The gateway never
-   * touches session persistence or key material — only this plaintext crosses in.
-   */
+  // The gateway never touches session persistence or key material — only this plaintext crosses
+  // in.
   readonly sessionSecret: string;
   /**
-   * REQUIRED allow-listed upload directory. The two-phase media flow accepts a
-   * local path only if its canonicalized realpath resolves INSIDE this
-   * directory; anything outside (incl. via symlink) is rejected fail-closed.
-   * Without it a `send`-capable endpoint could upload any readable file
-   * (session keyfile, SSH keys, /etc/passwd, ...).
+   * REQUIRED allow-listed upload directory: a local path is accepted only if its canonicalized
+   * realpath resolves INSIDE it, symlinks included. Without it a `send`-capable endpoint could
+   * upload any readable file — session keyfile, SSH keys, /etc/passwd.
    */
   readonly mediaRootDir: string;
-  /** Untrusted-content chokepoint; wraps every Telegram string at the edge. */
+  // Untrusted-content chokepoint; wraps every Telegram string at the edge.
   readonly sanitizer: UnicodeSanitizer;
-  /** Time source (TTL/timestamps) — injected for testability. */
   readonly clock: Clock;
-  /** Optional NON-SECRET diagnostic sink; never receives session material. */
+  // Non-secret diagnostics only; never receives session material.
   readonly logger?: (message: string) => void;
-  /**
-   * How the shared TelegramClient is constructed. Injection point for the
-   * lifecycle tests (and a future proxy/transport hook); defaults to the real
-   * GramJS client built from the options above.
-   */
+  // Injection point for the lifecycle tests; defaults to the real GramJS client.
   readonly clientFactory?: () => TelegramClient;
 }
 
-// ---------------------------------------------------------------------------
-// Internal (infrastructure-only) types — never escape this module
-// ---------------------------------------------------------------------------
-
-/** The scoped binding built once at connect time; the physical allow-list. */
 interface ScopeBinding {
-  /** canonical-id key -> input handle (the ONLY way to address a peer). */
+  // Canonical-id key -> input handle: the ONLY way to address a peer.
   readonly inputPeers: ReadonlyMap<string, Api.TypeInputPeer>;
-  /** canonical-id key -> cached entity (for getChatInfo without a fetch). */
   readonly entities: ReadonlyMap<string, ResolvedEntity>;
-  /** canonical-id key -> sanitized display name (scoped name cache). */
   readonly displayNames: ReadonlyMap<string, UntrustedText>;
-  /** lowercase username -> canonical-id key (in-scope username resolution). */
   readonly usernameIndex: ReadonlyMap<string, string>;
-  /** Stable account-order peers for cursor-based reads. */
   readonly orderedPeers: readonly {
     readonly key: string;
     readonly inputPeer: Api.TypeInputPeer;
   }[];
 }
 
-/** An in-memory two-phase media registration, bound to this scoped client. */
 interface MediaHandleEntry {
   readonly localPath: string;
   readonly sizeBytes: number;
@@ -205,7 +161,6 @@ interface MediaHandleEntry {
   readonly expiresAtMs: number;
 }
 
-/** A peer that has cleared the scope gate, ready to address Telegram. */
 interface ResolvedPeer {
   readonly inputPeer: Api.TypeInputPeer;
   readonly chatId: ChatId;
@@ -221,7 +176,6 @@ interface ScopedClientDeps {
   readonly client: TelegramClient;
   readonly ensureConnected: () => Promise<Result<void, AppError>>;
   readonly resolvedScope: ResolvedScope;
-  /** Resolved per-chat verb overrides (keyed by canonical id) — the fine gate. */
   readonly overrides: ChatVerbOverrideTable;
   readonly selfId: bigint;
   readonly binding: ScopeBinding;
@@ -231,19 +185,12 @@ interface ScopedClientDeps {
   readonly mediaRootDir: string;
 }
 
-// ---------------------------------------------------------------------------
-// Pure module helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Mint the echoed idempotency key when the caller supplies none. NOT Telegram's
- * `random_id` (the GramJS send generates its own) — this drives only the
- * best-effort in-memory replay cache below, never server-side de-duplication.
- */
+// Not Telegram's `random_id` — this drives only the best-effort in-memory replay cache, never
+// server-side de-duplication.
 const mintIdempotencyKey = (): string =>
   BigInt(`0x${randomBytes(8).toString('hex')}`).toString();
 
-/** An opaque, unguessable media handle (carries no path information). */
+// An opaque, unguessable media handle (carries no path information).
 const mintHandle = (): string => randomBytes(24).toString('base64url');
 
 const encodeCursor = (offsetId: number): string =>
@@ -322,21 +269,13 @@ const MIME_BY_EXT: ReadonlyMap<string, string> = new Map([
 const guessMime = (path: string): string =>
   MIME_BY_EXT.get(extname(path).toLowerCase()) ?? 'application/octet-stream';
 
-/**
- * A filesystem-safe basename component from an UNTRUSTED original filename: keep only
- * `[A-Za-z0-9._-]`, drop any leading dots (no hidden files / `..` traversal), cap the
- * length. Empty when nothing survives — the caller then falls back to the media kind.
- */
+// Keeps only `[A-Za-z0-9._-]`, drops leading dots (no hidden files, no `..`) and caps the
+// length; empty when nothing survives.
 const sanitizeFsNameComponent = (raw: string): string =>
   raw.replace(/[^A-Za-z0-9._-]/g, '_').replace(/^\.+/, '').slice(0, 64);
 
-/**
- * Build the SERVER-GENERATED download basename `<chatIdKey>_<messageId>_<name>`. The
- * name is the sanitized original filename when present, else the media kind. The chat
- * key is itself sanitized so a marked id (`-100…`) yields a legal name. Every component
- * is sanitized so the result carries no path separator or `..` — the caller supplies
- * none of it. Pure — exported for test.
- */
+// Server-generated `<chatIdKey>_<messageId>_<name>`. Every component is sanitized, so the
+// result can carry no path separator or `..` — and the caller supplies none of it.
 export const downloadBasename = (
   chatKey: string,
   messageId: number,
@@ -349,18 +288,13 @@ export const downloadBasename = (
   return `${keyPart}_${String(messageId)}_${namePart}`;
 };
 
-/** The slice of `MediaInfoDto` the download-name builder reads. */
 interface MediaFileNameSource {
   readonly kind: string;
   readonly fileName?: { readonly sanitizedValue: string };
 }
 
-/**
- * Refuse a download whose DECLARED media size exceeds the operator's cap, NAMING the
- * cap in the error (a resource guard for the operator's disk, not a security boundary).
- * An undefined declared size (e.g. a photo carries none) cannot be pre-checked, so it
- * passes. Pure — exported for test.
- */
+// A resource guard for the operator's disk, not a security boundary. An undefined declared size
+// (a photo carries none) cannot be pre-checked, so it passes.
 export const overDownloadCap = (
   declaredSize: number | undefined,
   cap: number,
@@ -372,7 +306,7 @@ export const overDownloadCap = (
       )
     : undefined;
 
-/** Private sentinel thrown from GramJS's progress callback to stop the iterator. */
+// Private sentinel thrown from GramJS's progress callback to stop the iterator.
 const DOWNLOAD_CAP_ABORT = new Error('download cap reached');
 
 const downloadCapExceeded = (cap: number): AppError =>
@@ -382,10 +316,9 @@ const downloadCapExceeded = (cap: number): AppError =>
   );
 
 /**
- * GramJS treats `WriteStream.write()` as awaitable even though Node returns a
- * boolean, then calls `close()` without awaiting it. Keep the dependency quirk
- * at this boundary: make each write genuinely await backpressure and expose the
- * close barrier the publisher must cross before inspecting or renaming the file.
+ * GramJS treats `WriteStream.write()` as awaitable and then calls `close()` without awaiting
+ * it. Keep the quirk at this boundary: await backpressure per write and expose the close
+ * barrier the publisher must cross.
  */
 const openDownloadWriter = (
   filePath: string,
@@ -407,25 +340,18 @@ const openDownloadWriter = (
   return { output, closed };
 };
 
-// ---------------------------------------------------------------------------
-// Gateway (the scoped-client factory)
-// ---------------------------------------------------------------------------
-
 export class GramjsTelegramGateway implements DialogFilterClientProvider {
   public constructor(private readonly options: GramjsTelegramGatewayOptions) {}
 
-  // ONE connected client per sessionRef, SHARED by every endpoint that binds.
-  // Lazily created and memoized; concurrent binds share the in-flight promise,
-  // and a failed attempt is not cached so a later bind can retry.
+  // One connected client per sessionRef, lazily created and memoized. Concurrent binds share
+  // the in-flight promise; a failed attempt is not cached, so a later bind can retry.
   private shared: { readonly client: TelegramClient; readonly selfId: bigint } | undefined;
   private sharedPromise:
     | Promise<Result<{ client: TelegramClient; selfId: bigint }, AppError>>
     | undefined;
   private disposed = false;
-  // The ONE in-flight/settled teardown, shared by every dispose() caller: a
-  // caller's promise resolving MUST mean the connection is actually gone (the
-  // auth-key ownership contract). A second caller returning early — before the
-  // first finished — would break that, so all callers await the same teardown.
+  // One shared teardown: a caller's promise resolving MUST mean the connection is actually gone
+  // (the auth-key ownership contract), so every caller awaits the same promise.
   private disposing: Promise<void> | undefined;
   // ONE reconnect attempt for the shared client. Scoped clients and GramJS's
   // sender callbacks both enter through this promise, and dispose() awaits it.
@@ -439,9 +365,7 @@ export class GramjsTelegramGateway implements DialogFilterClientProvider {
     (client): Promise<void> =>
       this.startReconnect(client, true).then(() => undefined),
   );
-  // Every scoped client this gateway minted, so dispose() can refuse and drain
-  // their operations before destroying the shared connection. Bounded: one
-  // entry per bind.
+  // So dispose() can refuse and drain their operations before destroying the shared connection.
   private readonly scopedClients = new Set<GramjsScopedClient>();
 
   public bindScopedClient(
@@ -455,7 +379,6 @@ export class GramjsTelegramGateway implements DialogFilterClientProvider {
     return this.trackUse(this.bindScopedClientLive(input));
   }
 
-  /** Release one policy-derived binding without touching the shared connection. */
   public releaseScopedClient(client: ScopedClient): Promise<void> {
     if (!(client instanceof GramjsScopedClient)) return Promise.resolve();
     this.scopedClients.delete(client);
@@ -500,9 +423,8 @@ export class GramjsTelegramGateway implements DialogFilterClientProvider {
       });
       this.scopedClients.add(scoped);
       if (this.isDisposed()) {
-        // dispose() swept the registry before this add landed (the bind was in
-        // flight across its snapshot) — retire the straggler here so it can
-        // never reconnect the destroyed shared client.
+        // dispose() swept the registry before this add landed, so retire the straggler here —
+        // it must never reconnect the destroyed shared client.
         this.scopedClients.delete(scoped);
         await scoped.dispose();
         return err(
@@ -516,7 +438,6 @@ export class GramjsTelegramGateway implements DialogFilterClientProvider {
     }
   }
 
-  /** Lend the same gateway-owned client to startup-time scope resolution. */
   public withClient<T>(
     sessionRef: SessionRefValue,
     use: (client: DialogFilterClient) => Promise<Result<T, AppError>>,
@@ -524,7 +445,6 @@ export class GramjsTelegramGateway implements DialogFilterClientProvider {
     return this.loanClient(sessionRef, use);
   }
 
-  /** Authenticated account enumeration without exposing the unscoped client. */
   public snapshotAccount(
     sessionRef: SessionRefValue,
   ): Promise<Result<AccountSnapshotDto, AppError>> {
@@ -561,31 +481,25 @@ export class GramjsTelegramGateway implements DialogFilterClientProvider {
   }
 
   /**
-   * Dispose the gateway and EVERYTHING it minted (composition-root owned).
-   * Idempotent, and a COMPLETE ownership barrier: when it resolves, this
-   * gateway can never own a Telegram connection again.
-   *  - Scoped clients retire FIRST: their fail-closed flags flip before the
-   *    shared client is destroyed, so an in-flight handler's next op is refused
-   *    ('scoped client was disposed') instead of lazily reconnecting the
-   *    destroyed client and resurrecting this auth key alongside its replacement.
-   *  - An IN-FLIGHT `openShared` is awaited to completion: it either fails, or
-   *    connects a client this teardown must destroy — resolving while it is
-   *    mid-connect would declare the key free just as the old connection comes
-   *    up. (openShared's own post-connect `disposed` check destroys the client
-   *    when this dispose won the race; see there.)
+   * Idempotent, composition-root owned, and a complete ownership barrier: once it resolves,
+   * this gateway can never own a Telegram connection again.
+   * Scoped clients retire FIRST, so an in-flight handler's next op is refused instead of lazily
+   * reconnecting the destroyed client and resurrecting this auth key alongside its replacement.
+   * An in-flight `openShared` is awaited to completion — resolving mid-connect would declare
+   * the key free just as the old connection comes up.
    */
   public dispose(): Promise<void> {
-    // Memoized: the FIRST call owns the teardown; every later caller awaits the
-    // SAME promise, so no caller sees "done" before the connection is truly
-    // gone. `disposed` flips synchronously here so in-flight scoped ops (and
-    // openShared's post-connect check) observe the retirement immediately.
+    /**
+     * The first caller owns the teardown and every later one awaits the same promise.
+     * `disposed` flips synchronously, so in-flight scoped ops observe the retirement
+     * immediately.
+     */
     this.disposed = true;
     this.senders.quiesce();
     this.disposing ??= this.teardown();
     return this.disposing;
   }
 
-  /** The one-time teardown body (see {@link dispose}). */
   private async teardown(): Promise<void> {
     await Promise.all(
       [...this.scopedClients].map((scoped) => scoped.dispose()),
@@ -616,7 +530,6 @@ export class GramjsTelegramGateway implements DialogFilterClientProvider {
     }
   }
 
-  /** Get-or-create the ONE shared connected+authorized client (race-safe). */
   private async connectShared(
     sessionRef: string,
   ): Promise<Result<{ client: TelegramClient; selfId: bigint }, AppError>> {
@@ -637,9 +550,8 @@ export class GramjsTelegramGateway implements DialogFilterClientProvider {
     try {
       res = await pending;
     } catch (error) {
-      // openShared rejects only when it could not prove that an aborted client
-      // was destroyed. Keep that rejected promise cached so dispose() remains
-      // a fail-closed ownership barrier.
+      // openShared rejects only when it could not prove an aborted client was destroyed. Keep
+      // that rejected promise cached so dispose() stays a fail-closed ownership barrier.
       return err(mapGramjsError(error));
     }
     if (!res.ok) {
@@ -653,9 +565,11 @@ export class GramjsTelegramGateway implements DialogFilterClientProvider {
   private async openShared(
     sessionRef: string,
   ): Promise<Result<{ client: TelegramClient; selfId: bigint }, AppError>> {
-    // Construction is INSIDE the try: `new StringSession(secret)` throws on a
-    // corrupt session string. Ordinary open failures resolve to Result; failure
-    // to destroy an aborted client rejects and poisons this ownership barrier.
+    /**
+     * Construction is inside the try: `new StringSession(secret)` throws on a corrupt session
+     * string. Ordinary failures resolve to a Result; failing to destroy an aborted client
+     * rejects and poisons this barrier.
+     */
     let client: TelegramClient | undefined;
     let destroyAttempted = false;
     try {
@@ -715,7 +629,6 @@ export class GramjsTelegramGateway implements DialogFilterClientProvider {
     }
   }
 
-  /** Gateway-owned, memoized readiness path used by every scoped operation. */
   private ensureSharedConnected(
     client: TelegramClient,
   ): Promise<Result<void, AppError>> {
@@ -786,16 +699,15 @@ export class GramjsTelegramGateway implements DialogFilterClientProvider {
     return use;
   }
 
-  /** Read through a method so TypeScript does not retain a pre-await narrowing. */
+  // Read through a method so TypeScript does not retain a pre-await narrowing.
   private isDisposed(): boolean {
     return this.disposed;
   }
 
   /**
-   * Resolve the allow-list to concrete input peers + entity caches by reading
-   * the account's dialogs once. Peers outside the resolved scope are dropped;
-   * in-scope peers that are not addressable simply never enter the cache (and
-   * are therefore unfetchable). FAIL-CLOSED: the caller rejects an empty result.
+   * Peers outside the resolved scope are dropped, and in-scope peers that are not addressable
+   * never enter the cache — so they stay unfetchable. FAIL-CLOSED: the caller rejects an empty
+   * result.
    */
   private async buildBinding(
     client: TelegramClient,
@@ -856,10 +768,6 @@ export class GramjsTelegramGateway implements DialogFilterClientProvider {
   }
 }
 
-// ---------------------------------------------------------------------------
-// ScopedClient (the bound, fail-closed data layer)
-// ---------------------------------------------------------------------------
-
 class GramjsScopedClient implements ScopedClient {
   private readonly client: TelegramClient;
   private readonly ensureGatewayConnected: () => Promise<Result<void, AppError>>;
@@ -879,11 +787,10 @@ class GramjsScopedClient implements ScopedClient {
   private readonly mediaHandles = new Map<string, MediaHandleEntry>();
   private pendingMediaPreparations = 0;
   /**
-   * BEST-EFFORT send de-duplication, NOT exactly-once. A key is remembered only
-   * AFTER an observed success, so it does NOT cover an ambiguous failure
-   * (Telegram accepted but the call errored), a process restart or policy change
-   * (in-memory, per-instance), or server-side dedup (the key is never sent as
-   * Telegram's `random_id`). Tool descriptions state these limits.
+   * BEST-EFFORT send de-duplication, not exactly-once: a key is remembered only after an
+   * observed success, so it does not cover an ambiguous failure, a restart or policy change
+   * (in-memory, per instance), or server-side dedup — the key is never sent as Telegram's
+   * `random_id`.
    */
   private readonly idempotency = new Map<string, SendResultDto>();
 
@@ -920,15 +827,12 @@ class GramjsScopedClient implements ScopedClient {
     );
   }
 
-  // ---- reads ----
-
   public getMessages(
     q: GetMessagesQuery,
   ): Promise<Result<Page<MessageDto>, AppError>> {
     return this.withPeer(q.peer, PermissionVerb.Read, async (resolved) => {
-      // A topicId is only meaningful for a forum supergroup; requiring it here
-      // stops GetReplies from pivoting a broadcast channel onto its out-of-scope
-      // linked discussion group.
+      // A topicId is only meaningful for a forum supergroup; requiring it here stops GetReplies
+      // from pivoting a broadcast channel onto its out-of-scope linked discussion group.
       if (q.topicId !== undefined) {
         const forum = this.requireForumPeer(resolved);
         if (!forum.ok) {
@@ -945,9 +849,8 @@ class GramjsScopedClient implements ScopedClient {
         }
       }
 
-      // A topicId switches GramJS from messages.GetHistory to messages.GetReplies
-      // (the topic's thread). The forum pre-check above keeps this same-peer, so
-      // the thread cannot resolve to another chat. offsetId cursors apply to both.
+      // A topicId switches GramJS to messages.GetReplies; the forum pre-check above keeps this
+      // same-peer, so the thread cannot resolve to another chat.
       const list = await this.client.getMessages(resolved.inputPeer, {
         limit,
         ...(offsetId !== undefined ? { offsetId } : {}),
@@ -1004,9 +907,8 @@ class GramjsScopedClient implements ScopedClient {
       return batch.ok ? ok(this.toPeerSearchPage(batch.value)) : batch;
     }
 
-    // A topic filter without a peer is contradictory (a topic exists inside ONE
-    // chat); the schema already rejects it — re-check fail-closed rather than
-    // silently fanning out across the scope.
+    // A topic filter without a peer is contradictory; the schema rejects it, and this re-check
+    // keeps the data layer fail-closed on its own.
     if (q.topicId !== undefined) {
       return err(
         appError(
@@ -1030,12 +932,11 @@ class GramjsScopedClient implements ScopedClient {
       offsetId = cursor.offsetId;
     }
 
-    // Whole-scope fan-out is deliberately SEQUENTIAL and call-bounded. A page
-    // visits at most MAX_SEARCH_FANOUT_CALLS Telegram searches, then returns a
-    // composite cursor containing only an array offset + message offset (never a
-    // peer id/access hash). This bounds latency/network amplification without a
-    // burst of parallel searches. Per-chat overrides may narrow Read and are
-    // checked before each peer is touched.
+    /**
+     * Whole-scope fan-out is deliberately sequential and call-bounded: a page visits at most
+     * MAX_SEARCH_FANOUT_CALLS searches, then returns a composite cursor carrying only an array
+     * offset and a message offset — never a peer id or access hash.
+     */
     const collected: MessageDto[] = [];
     let calls = 0;
     while (
@@ -1063,9 +964,8 @@ class GramjsScopedClient implements ScopedClient {
         ...(offsetId > 0 ? { offsetId } : {}),
       });
       if (!res.ok) {
-        // A successful page cannot honestly advance past a peer whose search
-        // failed: doing so turns a transient outage into silent, unrecoverable
-        // result loss for the continuation chain.
+        // A successful page cannot honestly advance past a peer whose search failed: that turns
+        // a transient outage into silent, unrecoverable result loss for the continuation chain.
         return res;
       }
       collected.push(...res.value.items);
@@ -1237,34 +1137,36 @@ class GramjsScopedClient implements ScopedClient {
         return fetched;
       }
       const { message, info } = fetched.value;
-      // Enforce the DECLARED size cap BEFORE downloading a byte (operator disk guard).
-      // Unknown or dishonest sizes are still bounded by the progress + post-write
-      // checks below.
+      // Enforce the declared size cap BEFORE downloading a byte; unknown or dishonest sizes
+      // stay bounded by the progress and post-write checks below.
       const capError = overDownloadCap(info.sizeBytes, this.maxDownloadBytes);
       if (capError !== undefined) {
         return err(capError);
       }
-      // SERVER-GENERATED, confined path: <mediaRoot>/downloads/<key>_<id>_<name>. The
-      // caller never supplies a path, so no traversal is possible; the dir/file are
-      // owner-only (0700/0600) like every other secret-bearing artifact.
+      // Server-generated, confined path `<mediaRoot>/downloads/…`: the caller supplies none of
+      // it, so no traversal is possible, and dir and file are owner-only.
       const dir = join(this.mediaRootDir, 'downloads');
       await mkdir(dir, { recursive: true, mode: SECRET_MODES.dir });
       const filePath = join(
         dir,
         downloadBasename(resolved.canonicalId, q.messageId, info),
       );
-      // Download to a unique sibling and publish only after every cap/mode check.
-      // A failed concurrent attempt can therefore never delete another attempt's
-      // completed file, and partial bytes are never exposed at the returned path.
+      /**
+       * Download to a unique sibling and publish only after every cap and mode check, so a
+       * failed concurrent attempt can never delete another's completed file and partial bytes
+       * never appear at the returned path.
+       */
       const partialPath = `${filePath}.part-${randomBytes(8).toString('hex')}`;
       const writer = openDownloadWriter(partialPath);
       let published = false;
       try {
         const written = await this.client.downloadMedia(message, {
           outputFile: writer.output,
-          // GramJS 2.26 does not consult the callback's documented
-          // `isCanceled` property. Throwing stops its async download iterator;
-          // the sentinel is caught below and the partial is removed in finally.
+          /**
+           * GramJS 2.26 ignores the callback's documented `isCanceled`; throwing stops its
+           * download iterator, and the sentinel is caught below with the partial removed in
+           * finally.
+           */
           progressCallback: (downloaded: {
             greater(value: number): boolean;
           }): void => {
@@ -1281,9 +1183,8 @@ class GramjsScopedClient implements ScopedClient {
             ),
           );
         }
-        // GramJS closes the supplied stream in its own finally block but does
-        // not await it. Publication begins only after every queued byte and the
-        // file descriptor have settled.
+        // GramJS closes the supplied stream in its own finally but does not await it.
+        // Publication begins only after every queued byte and the file descriptor have settled.
         writer.output.close();
         await writer.closed;
         const sizeBytes = (await stat(partialPath)).size;
@@ -1357,8 +1258,6 @@ class GramjsScopedClient implements ScopedClient {
       return ok({ items });
     });
   }
-
-  // ---- writes ----
 
   public async sendMessage(
     c: SendMessageCommand,
@@ -1451,9 +1350,8 @@ class GramjsScopedClient implements ScopedClient {
   ): Promise<Result<MarkReadResultDto, AppError>> {
     return this.withPeer(c.peer, PermissionVerb.MarkRead, async (resolved) => {
       if (c.topicId !== undefined) {
-        // Per-topic read marker. Telegram has no "whole topic" form, so the
-        // explicit high-water mark is required — the schema enforces it; this
-        // re-check keeps the data layer fail-closed on its own.
+        // Telegram has no whole-topic form, so the explicit high-water mark is required. The
+        // schema enforces it; this re-check keeps the data layer fail-closed.
         if (c.maxMessageId === undefined) {
           return err(
             appError(
@@ -1567,10 +1465,12 @@ class GramjsScopedClient implements ScopedClient {
     c: PrepareMediaCommand,
   ): Promise<Result<MediaHandleDto, AppError>> {
     try {
-      // FILESYSTEM CONFINEMENT: the model supplies an arbitrary path; canonicalize
-      // it (following symlinks) and accept it ONLY if it resolves to a regular file
-      // INSIDE the allow-listed upload root, so a `send`-capable endpoint cannot
-      // exfiltrate any readable file (session keyfile, SSH keys, /etc/passwd, ...).
+      /**
+       * FILESYSTEM CONFINEMENT: the model supplies an arbitrary path, so canonicalize it
+       * through symlinks and accept it only when it resolves to a regular file INSIDE the
+       * allow-listed upload root — otherwise a `send`-capable endpoint could exfiltrate any
+       * readable file.
+       */
       const confined = await this.resolveWithinRoot(c.localPath);
       if (!confined.ok) {
         return confined;
@@ -1636,10 +1536,11 @@ class GramjsScopedClient implements ScopedClient {
       return err(appError(AppErrorCode.InvalidMediaHandle, 'media handle expired'));
     }
 
-    // TOCTOU close: re-canonicalize + re-confine + re-cap the stored path
-    // immediately before upload. The file (or a path component) could have been
-    // swapped/symlinked between prepare and send; a single-use handle that no
-    // longer points to an in-root regular file fails closed.
+    /**
+     * TOCTOU close: re-canonicalize, re-confine and re-cap the stored path immediately before
+     * upload. The file or a path component could have been swapped between prepare and send,
+     * and a single-use handle that no longer points to an in-root regular file fails closed.
+     */
     const confined = await this.resolveWithinRoot(entry.localPath);
     if (!confined.ok) {
       this.mediaHandles.delete(c.handle);
@@ -1678,24 +1579,22 @@ class GramjsScopedClient implements ScopedClient {
     });
   }
 
-  // ---- lifecycle ----
-
   public dispose(): Promise<void> {
     if (!this.disposed) {
       this.disposed = true;
       this.mediaHandles.clear();
       this.idempotency.clear();
     }
-    // Draining the endpoint's active operations is part of the gateway's
-    // ownership barrier: no operation may create/use an exported sender after
-    // the gateway has started destroying the physical client.
+    /**
+     * Draining the endpoint's active operations is part of the gateway's ownership barrier: no
+     * operation may create/use an exported sender after the gateway has started destroying the
+     * physical client.
+     */
     this.disposing ??= Promise.allSettled([...this.activeOperations]).then(
       () => undefined,
     );
     return this.disposing;
   }
-
-  // ---- private ----
 
   private toMessageDto(message: Api.Message): MessageDto {
     return mapMessage(message, {
@@ -1771,11 +1670,8 @@ class GramjsScopedClient implements ScopedClient {
     }
   }
 
-  /**
-   * Fetch ONE in-scope message by id and its media info (shared opening of
-   * getMediaInfo / downloadMedia). `noMedia` names the caller's error for a
-   * message that carries no media.
-   */
+  // Fetch ONE in-scope message by id and its media info (shared opening of getMediaInfo /
+  // downloadMedia). `noMedia` names the caller's error for a message that carries no media.
   private async fetchMediaInfo(
     resolved: ResolvedPeer,
     messageId: number,
@@ -1820,10 +1716,12 @@ class GramjsScopedClient implements ScopedClient {
         ),
       );
     }
-    // A non-existent path and an existing out-of-root path MUST return the SAME
-    // error; distinct codes would turn prepare_media into a filesystem existence
-    // oracle over arbitrary host paths (probe `~/.ssh/id_ed25519` etc.).
-    // Existence is revealed only for paths inside the allow-listed root.
+    /**
+     * A non-existent path and an existing out-of-root path MUST return the SAME error; distinct
+     * codes would turn prepare_media into a filesystem existence oracle over arbitrary host
+     * paths (probe `~/.ssh/id_ed25519` etc.). Existence is revealed only for paths inside the
+     * allow-listed root.
+     */
     const notInRoot = (): Result<never, AppError> =>
       err(
         appError(
@@ -1855,8 +1753,8 @@ class GramjsScopedClient implements ScopedClient {
     return ok({ realPath, size: stats.size });
   }
 
-  /** Drop expired media handles; an expired handle never re-presented would
-   * otherwise live until dispose (unbounded growth under repeated prepare). */
+  // Drop expired media handles; one never re-presented would otherwise live until dispose,
+  // growing unbounded under repeated prepare.
   private sweepExpiredMediaHandles(): void {
     const now = this.clock.nowMs();
     for (const [handle, entry] of this.mediaHandles) {
@@ -1886,7 +1784,7 @@ class GramjsScopedClient implements ScopedClient {
     }
   }
 
-  /** Reject any operation once the client is disposed (fail-closed). */
+  // Reject any operation once the client is disposed (fail-closed).
   private ensureLive(): Result<void, AppError> {
     if (this.disposed) {
       return err(
@@ -1896,7 +1794,7 @@ class GramjsScopedClient implements ScopedClient {
     return ok(undefined);
   }
 
-  /** Ask the gateway's one lifecycle controller to establish readiness. */
+  // Ask the gateway's one lifecycle controller to establish readiness.
   private async ensureConnected(): Promise<Result<void, AppError>> {
     const live = this.ensureLive();
     if (!live.ok) {

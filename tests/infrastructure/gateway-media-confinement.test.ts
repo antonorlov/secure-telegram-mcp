@@ -1,22 +1,8 @@
 /**
- * Two-phase media upload CONFINEMENT — prepareMedia/sendMedia over REAL temp
- * directories and symlinks (node:fs), driven through a fake TelegramClient via
- * the `clientFactory` seam.
- *
- * Pinned here:
- *  - a path outside the media root is rejected; a symlink INSIDE the root that
- *    resolves outside is rejected (realpath-based confinement);
- *  - out-of-root and non-existent paths return the IDENTICAL error, so
- *    prepare_media is never a filesystem existence oracle over host paths;
- *  - a non-regular file (directory) is rejected Validation;
- *  - a file over the 50 MiB upload cap is rejected SizeCapExceeded (sparse
- *    file — the cap reads st_size, no real 50 MiB is written);
- *  - an inaccessible media root fails GatewayUnavailable, not open-ended;
- *  - sendMedia: unknown handle rejected; expired handle rejected once the
- *    injected clock passes the 5-minute TTL; a handle is SINGLE-USE; the
- *    TOCTOU window (file swapped for an out-of-root symlink between prepare
- *    and send) fails closed WITHOUT uploading and consumes the handle;
- *  - a scope-denied send does NOT consume the handle (nothing was uploaded).
+ * Two-phase upload confinement over real temp directories and symlinks: a path outside the
+ * media root is rejected, a symlink inside the root that resolves outside is rejected, and
+ * out-of-root and non-existent paths return an identical error, so prepare_media is never a
+ * filesystem oracle.
  */
 import {
   mkdir,
@@ -57,9 +43,9 @@ import { buildEndpoint } from '../application/_support.js';
 
 const PEER_ID = 101;
 const OUT_OF_SCOPE = 999;
-/** The adapter's documented upload cap (DEFAULTS.maxMediaBytes). */
+// The adapter's documented upload cap (DEFAULTS.maxMediaBytes).
 const MAX_MEDIA_BYTES = 50 * 1024 * 1024;
-/** The adapter's documented two-phase handle lifetime (DEFAULTS.mediaHandleTtlMs). */
+// The adapter's documented two-phase handle lifetime (DEFAULTS.mediaHandleTtlMs).
 const MEDIA_HANDLE_TTL_MS = 5 * 60 * 1000;
 
 const roots: string[] = [];
@@ -76,7 +62,7 @@ const tempDir = async (prefix: string): Promise<string> => {
   return dir;
 };
 
-/** A settable time source: starts at a fixed synthetic instant, advances on demand. */
+// A settable time source: starts at a fixed synthetic instant, advances on demand.
 class AdvancingClock implements Clock {
   private ms = Date.parse('2026-01-01T00:00:00.000Z');
   public nowMs(): number {
@@ -213,7 +199,7 @@ const setup = async (options?: {
   return { root, fake, clock, gateway, client: bound.value, peer: PeerRefFactory.fromId(id) };
 };
 
-/** The ONE anti-oracle rejection shape shared by every out-of-root outcome. */
+// The ONE anti-oracle rejection shape shared by every out-of-root outcome.
 const expectNotInRoot = (result: Result<unknown, AppError>): void => {
   expect(result.ok).toBe(false);
   if (result.ok) return;

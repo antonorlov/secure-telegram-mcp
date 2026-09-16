@@ -1,18 +1,7 @@
 /**
- * connect — the thin shim every MCP client spawns (its stdio "server"). It owns no Telegram
- * state: it finds the one local daemon at `daemonAddress`, auto-starts it (detached,
- * gpg-agent style) when absent, sends the one-line handshake (endpoint API key / name), then
- * pipes stdio ⇄ socket verbatim. Ten shims are ten pipes into one daemon — the safe shape for
- * Telegram's one-owner-per-auth-key rule.
- *
- * Detached daemon: spawned with the same entrypoint + env (`start --worker`), stdio ignored
- * (it logs to its file), unref'd so this shim's exit never kills it. The daemon binds the
- * socket; this shim polls until it answers.
- *
- * Locked but serving: connect always establishes an MCP session — even when the session is
- * PIN-locked. A locked daemon still binds and serves (initialize + tools/list succeed); each
- * tool call returns a secret-free lock error until `npx secure-telegram-mcp start`
- * unlock. This shim owns zero lock knowledge: it is a pure byte pipe with no preflight/refusal.
+ * The thin shim every MCP client spawns. It owns no Telegram state: it finds the one local
+ * daemon at `daemonAddress`, auto-starts it detached when absent, sends the one-line handshake,
+ * then pipes stdio to the socket.
  */
 import { daemonAddress } from '../../infrastructure/daemon-address.js';
 import { isErr } from '../../shared/index.js';
@@ -22,12 +11,9 @@ import {
 } from '../daemon-socket.js';
 
 export interface ConnectOptions {
-  /** Session dir — keys the rendezvous address (must match the daemon's). */
   readonly sessionDir: string;
-  /** The required endpoint API key and an optional matching-name assertion. */
   readonly endpointToken?: string;
   readonly endpointName?: string;
-  /** How the daemon is spawned when absent (argv without the command word). */
   readonly daemonCommand: DaemonCommand;
 }
 
@@ -46,9 +32,11 @@ export const connect = async (options: ConnectOptions): Promise<void> => {
   }
   const socket = opened.value;
 
-  // Handshake first (ordering on the stream is guaranteed), then raw piping — the MCP client
-  // on our stdio and the daemon speak newline-delimited JSON-RPC through us without this shim
-  // ever parsing a message.
+  /**
+   * Handshake first — ordering on the stream is guaranteed — then raw piping: the MCP client
+   * and the daemon speak newline-delimited JSON-RPC through this shim without it ever parsing a
+   * message.
+   */
   socket.write(
     `${JSON.stringify({
       v: 1,

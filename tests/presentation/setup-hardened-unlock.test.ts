@@ -1,20 +1,7 @@
 /**
- * setup — HARDENED interactive unlock (MANDATED FIX #1 regression).
- *
- * The bug: re-running `setup` against an EXISTING HARDENED (PIN) session dropped
- * the operator at the "Logged in — <ref>" main menu based purely on the session
- * FILE existing on disk, WITHOUT ever establishing an unlock channel. The first
- * session-dependent action (Configure endpoints) then failed with
- * "No unlock channel available for this session …" because the construction-time
- * source is `machine` (no env PIN) and a HARDENED envelope carries no machine slot.
- *
- * The current design renders a truthful LOCKED state and authenticates the
- * operator socket with a masked PIN (bounded retry, fail-closed). Setup never
- * opens the encrypted repository itself.
- *
- * These tests drive the REAL `runSetup` with a scripted fake `SetupUi` and
- * operator port. A correct PIN enables Configure, while a wrong/cancelled PIN
- * never exposes a usable session action.
+ * Regression: re-running setup against an existing HARDENED session dropped the operator at the
+ * "Logged in" main menu purely because the session file existed, with no unlock channel ever
+ * established, so the first session-dependent action failed.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
@@ -143,7 +130,7 @@ const H = vi.hoisted(() => {
   });
 
   class FakeFileConfigRepository {
-    /** No config on disk yet — these suites edit from a first-run baseline. */
+    // No config on disk yet — these suites edit from a first-run baseline.
     public loadValidated(): Promise<Ok<undefined>> {
       return Promise.resolve(okv(undefined));
     }
@@ -355,3 +342,70 @@ describe('setup HARDENED interactive unlock (mandated fix #1)', () => {
     expect(H.state.listCalls).toBe(2);
   });
 });
+
+describe.each(['add', 'change', 'remove', 'export'] as const)(
+  'setup security: %s',
+  (action) => {
+    it.each([true, false])('preserves the UI and unlock state when success=%s', async (succeeds) => {
+      const replacement = 'replacement-PIN-for-test';
+      const recoveryPath = '/tmp/setup-recovery-test.key';
+      const current = { kind: 'passphrase', passphrase: CORRECT_PIN } as const;
+      const next = { kind: 'passphrase', passphrase: replacement } as const;
+      const methods = { add: 'setPin', change: 'changePin', remove: 'removePin', export: 'exportRecovery' } as const;
+      const inputs = {
+        add: [replacement, replacement],
+        change: [CORRECT_PIN, replacement, replacement],
+        remove: [CORRECT_PIN],
+        export: [CORRECT_PIN, recoveryPath],
+      };
+      const argumentsByAction = {
+        add: [{ kind: 'machine' }, next],
+        change: [current, next],
+        remove: [current],
+        export: [current, recoveryPath],
+      };
+      const successNotices = {
+        add: 'PIN set — the app is now HARDENED',
+        change: 'PIN changed.',
+        remove: 'PIN removed — the app is now SMOOTH',
+        export: 'Recovery keyfile written',
+      };
+      const failureNotices = {
+        add: 'Could not add PIN: operation rejected',
+        change: 'Could not change PIN: operation rejected',
+        remove: 'Could not remove PIN: operation rejected',
+        export: 'Could not export recovery keyfile: operation rejected',
+      };
+      let posture: 'smooth' | 'hardened' = action === 'add' ? 'smooth' : 'hardened';
+      const operator = makeOperator();
+      vi.spyOn(operator, 'status').mockImplementation(() =>
+        Promise.resolve({ ok: true, value: { posture, locked: false, hasAccounts: true } }),
+      );
+      const operation = vi.spyOn(operator, methods[action]).mockImplementation((): ReturnType<OperatorClientPort['setPin']> => {
+        if (succeeds) posture = action === 'remove' ? 'smooth' : 'hardened';
+        return Promise.resolve(succeeds
+          ? { ok: true, value: { changed: true as const } }
+          : { ok: false, error: 'operation rejected' });
+      });
+      H.state.menuChoices = [
+        ...(action === 'add' ? [] : ['unlock']), 'security', action, 'back', 'quit',
+      ];
+      H.state.answers = [...(action === 'add' ? [] : [CORRECT_PIN]), ...inputs[action]];
+
+      await runSetup({ ...makeOptions(), operatorClient: operator });
+
+      expect(operation).toHaveBeenCalledExactlyOnceWith(...argumentsByAction[action]);
+      const transcript = stderrChunks.join('');
+      expect(transcript).toContain(succeeds ? successNotices[action] : failureNotices[action]);
+      expect(transcript).not.toContain(replacement);
+      expect(H.state.verifyCalls).toHaveLength(action === 'add' ? 0 : 1);
+      // Adding/changing a PIN invalidates the cached unlock only after success.
+      // Errors and exporting a key keep it; removing the PIN returns to SMOOTH.
+      const lockedScreens = H.state.menuSubtitles.filter((s) => s.startsWith('Locked'));
+      const initiallyLocked = action === 'add' ? 0 : 1;
+      const newlyLocked = succeeds && (action === 'add' || action === 'change') ? 1 : 0;
+      expect(lockedScreens).toHaveLength(initiallyLocked + newlyLocked);
+      expect(process.exitCode).toBeUndefined();
+    });
+  },
+);

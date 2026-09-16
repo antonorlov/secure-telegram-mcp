@@ -71,7 +71,7 @@ const openPayload = async (
   }
 };
 
-/** Total accessor — keeps the strict no-non-null-assertion / no-cast rules happy. */
+// Total accessor — keeps the strict no-non-null-assertion / no-cast rules happy.
 const slotAt = (envelope: SessionEnvelopeV2, index = 0): Slot => {
   const slot = envelope.slots[index];
   if (slot === undefined) {
@@ -243,9 +243,11 @@ describe('isSessionEnvelopeV2 — slot-count cap (scrypt-DoS defense)', () => {
   it('FAILS CLOSED on a tampered blob whose slot count exceeds the cap', async () => {
     const envelope = expectOk(await sealPayload(codec, [passphraseSlot('pin')]));
     const oneSlot = slotAt(envelope);
-    // Forge a blob piling on far more slots than the internal cap (8) allows —
-    // the shape a tampered 0600 file would use to force a per-slot scrypt-DoS at
-    // load. Rejected as not-a-v2-envelope BEFORE any KDF runs over the slots.
+    /**
+     * Forge a blob piling on far more slots than the internal cap (8) allows — the shape a
+     * tampered 0600 file would use to force a per-slot scrypt-DoS at load. Rejected as
+     * not-a-v2-envelope BEFORE any KDF runs over the slots.
+     */
     const tampered = {
       ...envelope,
       slots: Array.from({ length: 9 }, () => oneSlot),

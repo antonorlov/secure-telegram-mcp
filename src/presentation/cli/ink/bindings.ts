@@ -1,21 +1,5 @@
-/**
- * Binding table — one array that drives, all from the same data:
- *   1. key dispatch (a normalised keypress -> the picker action it fires),
- *   2. the context-sensitive footer (only bindings enabled for the current state show), and
- *   3. the grouped `?` help overlay.
- * Keys and footer can never drift because they are projections of the same data.
- *
- * Framework-free: no Ink/React import. The Ink layer normalises its key event into a
- * `KeyChord` (via `normalizeKeyEvent`) and asks `matchBinding` what to do — so the whole
- * keymap is pure and unit-testable, and `connect` never reaches Ink.
- *
- * The WYSIWYG keymap (membership IS access):
- *  - `r` (alias: Space, the TUI select idiom — read-only IS selection here) and `w`
- *    are the only grant keys (chat / folder-unit row / visual range) and are
- *    hidden/inert while the search input is focused, so typing a chat's name can never
- *    grant write;
- *  - `0`/Backspace removes from scope; `s` saves; Esc cancels.
- */
+// One table drives key dispatch, the context-sensitive footer and the grouped `?` help overlay,
+// so the three can never drift apart.
 import type {
   BindingGroup,
   BindingTable,
@@ -24,12 +8,10 @@ import type {
 } from './components/index.js';
 import type { PickerAction, PickerState } from '../picker/index.js';
 
-// Key-event normalisation (Ink's Key -> our framework-free KeyChord)
-
 /**
- * The subset of Ink's `Key` we read, all optional so plain test objects satisfy
- * it. Defined here (not imported from ink) to keep this module framework-free;
- * Ink's real `Key` is structurally assignable.
+ * The subset of Ink's `Key` we read, all optional so plain test objects satisfy it. Defined
+ * here rather than imported from ink to keep this module framework-free; Ink's real `Key` is
+ * structurally assignable.
  */
 export interface KeyEventLike {
   readonly upArrow?: boolean;
@@ -43,14 +25,8 @@ export interface KeyEventLike {
   readonly ctrl?: boolean;
 }
 
-/**
- * Normalise an Ink `(input, key)` pair into a single canonical `KeyChord`, or
- * `undefined` when the event is not a single actionable chord (e.g. a multi-char
- * paste — the caller routes that to the filter input). Named keys win over the
- * raw `input`; printable characters are kept case-sensitive (so `r` and `R` are
- * distinct chords). Ctrl-modified printables normalise to `undefined` — the settled
- * keymap has no ctrl chords, so they stay exactly as inert as an unbound key.
- */
+// Returns `undefined` when the event is not a single actionable chord — a multi-char paste,
+// which the caller routes to the filter input. Named keys win over the raw `input`.
 export const normalizeKeyEvent = (
   input: string,
   key: KeyEventLike,
@@ -71,12 +47,8 @@ export const normalizeKeyEvent = (
 
 const chordEquals = (a: KeyChord, b: KeyChord): boolean => a.key === b.key;
 
-// Context predicates (the `enabled` gates — keep the three axes from crossing)
-
 const treeFocus = (s: PickerState): boolean => s.focus === 'tree';
 const hasQuery = (s: PickerState): boolean => s.query.trim() !== '';
-
-// Meta binding ids (bindings with no action — the shell interprets these)
 
 export const MetaBindingId = {
   Save: 'save',
@@ -88,15 +60,9 @@ export type MetaBindingId = (typeof MetaBindingId)[keyof typeof MetaBindingId];
 
 const action = (a: PickerAction): { readonly action: PickerAction } => ({ action: a });
 
-// The table
-
-/**
- * The default picker keymap. Order matters twice: `matchBinding` returns the first enabled
- * binding whose chord matches, and the footer/help render in this order. Every chord is
- * convention-aligned and dual-bound where a vi-style alias exists.
- */
+// Order matters twice: `matchBinding` returns the first enabled binding whose chord matches,
+// and the footer and help render in this order.
 export const defaultPickerBindings: BindingTable = Object.freeze([
-  // --- move (cursor only) ---
   {
     id: 'move-up',
     chords: [{ key: 'up' }, { key: 'k' }],
@@ -111,7 +77,6 @@ export const defaultPickerBindings: BindingTable = Object.freeze([
     group: 'move',
     ...action({ type: 'move', direction: 'down' }),
   },
-  // --- tabs (horizontal folder tabs replace tree expand/collapse) ---
   {
     id: 'prev-tab',
     chords: [{ key: 'left' }, { key: 'h' }],
@@ -128,7 +93,6 @@ export const defaultPickerBindings: BindingTable = Object.freeze([
     enabled: treeFocus,
     ...action({ type: 'nextTab' }),
   },
-  // --- select helpers (mark many rows, then r/w applies the access) ---
   {
     id: 'visual',
     chords: [{ key: 'v' }],
@@ -153,7 +117,6 @@ export const defaultPickerBindings: BindingTable = Object.freeze([
     enabled: treeFocus,
     ...action({ type: 'invertShown' }),
   },
-  // --- access (r/w — the one way to grant; inert while typing) ---
   {
     id: 'read',
     // Space aliases r: the checkbox idiom — "select" = grant the least-privilege
@@ -182,7 +145,6 @@ export const defaultPickerBindings: BindingTable = Object.freeze([
     enabled: treeFocus,
     ...action({ type: 'clearAccess' }),
   },
-  // --- search / filter ---
   {
     id: MetaBindingId.Find,
     chords: [{ key: '/' }],
@@ -206,7 +168,6 @@ export const defaultPickerBindings: BindingTable = Object.freeze([
     enabled: (s: PickerState): boolean => treeFocus(s) && hasQuery(s),
     ...action({ type: 'searchPrev' }),
   },
-  // --- meta (no action — the shell interprets these by id) ---
   {
     id: MetaBindingId.Save,
     chords: [{ key: 's' }, { key: 'S' }],
@@ -229,16 +190,13 @@ export const defaultPickerBindings: BindingTable = Object.freeze([
   },
 ] as const);
 
-// Projections (dispatch / footer / help all derive from the same table)
-
-/** A binding is live unless its `enabled` predicate says otherwise. */
 export const isBindingEnabled = (binding: KeyBinding, state: PickerState): boolean =>
   binding.enabled === undefined ? true : binding.enabled(state);
 
 /**
- * The dispatch resolver: the first enabled binding whose chord matches the keypress, or
- * `undefined` (an unbound key — e.g. printable filter text). The visual binding is a
- * one-shot anchor; applying r/w consumes the range.
+ * The first enabled binding whose chord matches, or `undefined` for an unbound key such as
+ * printable filter text. The visual binding is a one-shot anchor: applying r/w consumes the
+ * range.
  */
 export const matchBinding = (
   state: PickerState,
@@ -250,13 +208,12 @@ export const matchBinding = (
       isBindingEnabled(b, state) && b.chords.some((c) => chordEquals(c, chord)),
   );
 
-/** The context-sensitive footer set: the enabled bindings, in table order. */
 export const selectFooterBindings = (
   state: PickerState,
   table: BindingTable = defaultPickerBindings,
 ): BindingTable => table.filter((b) => isBindingEnabled(b, state));
 
-/** The fixed help-group order (matches the footer's left-to-right grouping). */
+// The fixed help-group order (matches the footer's left-to-right grouping).
 export const HELP_GROUP_ORDER: readonly BindingGroup[] = Object.freeze([
   'move',
   'tabs',
@@ -271,10 +228,8 @@ export interface HelpGroup {
   readonly bindings: BindingTable;
 }
 
-/**
- * The grouped `?` overlay model: every binding (the overlay documents the full keymap,
- * regardless of the current context), bucketed in `HELP_GROUP_ORDER`. Empty groups are omitted.
- */
+// The overlay documents the full keymap regardless of the current context, bucketed in
+// `HELP_GROUP_ORDER`. Empty groups are omitted.
 export const groupBindingsForHelp = (
   table: BindingTable = defaultPickerBindings,
 ): readonly HelpGroup[] =>
@@ -283,8 +238,6 @@ export const groupBindingsForHelp = (
     bindings: table.filter((b) => b.group === group),
   })).filter((g) => g.bindings.length > 0);
 
-// Chord display (footer + help share one renderer — no drift)
-
 const NAMED_CHORD_LABEL: Readonly<Record<string, string>> = Object.freeze({
   down: 'dn',
   escape: 'esc',
@@ -292,11 +245,9 @@ const NAMED_CHORD_LABEL: Readonly<Record<string, string>> = Object.freeze({
   ' ': 'spc',
 });
 
-/** A single chord's display token, e.g. `up`, `spc`, `/`. */
 export const formatChord = (chord: KeyChord): string => {
   return NAMED_CHORD_LABEL[chord.key] ?? chord.key;
 };
 
-/** A binding's footer hint: its chords joined by `/`, e.g. `up/k`, `spc/tab`. */
 export const formatBindingHint = (binding: KeyBinding): string =>
   binding.chords.map(formatChord).join('/');

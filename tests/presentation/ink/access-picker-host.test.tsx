@@ -26,7 +26,7 @@ const SAVE = 's';
 const chats: readonly SetupChat[] = [{ id: '-1', title: 'Chan', kind: 'channel' }];
 const { rows } = buildPickerTree(chats);
 
-/** A picker state with the one chat toggled to the given access, cursor on it. */
+// A picker state with the one chat toggled to the given access, cursor on it.
 const withAccess = (axis: 'read' | 'write'): PickerState => {
   const s = createPickerState({ endpointName: 'reader', rows });
   return pickerReducer({ ...s, cursorRowId: 'chat:-1' }, { type: 'toggleBit', axis });

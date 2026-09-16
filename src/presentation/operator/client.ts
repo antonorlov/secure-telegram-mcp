@@ -17,6 +17,8 @@ import type {
   OperatorResult,
   OperatorAccountDto,
   OperatorStatusDto,
+  OperatorLoginInput,
+  OperatorLoginResult,
 } from './protocol.js';
 import {
   isOperatorResultFor,
@@ -37,7 +39,7 @@ interface Pending {
   ) => void | Promise<void>;
 }
 
-/** Persistent setup-side client; authentication is scoped to this socket. */
+// Persistent setup-side client; authentication is scoped to this socket.
 export class OperatorClient {
   private socket: Socket | undefined;
   private readonly framer = new BoundedLineFramer(MAX_OPERATOR_FRAME_BYTES);
@@ -93,10 +95,7 @@ export class OperatorClient {
     return this.request({ op: 'account.snapshot', sessionRef });
   }
 
-  public login(input: {
-    readonly apiId: number;
-    readonly apiHash: string;
-    readonly method: 'qr' | 'phone';
+  public login(input: OperatorLoginInput & {
     readonly onQr: (info: {
       readonly url: string;
       readonly expiresInSeconds: number;
@@ -105,19 +104,7 @@ export class OperatorClient {
       kind: 'phone' | 'code' | 'password',
       hint?: string,
     ) => Promise<string>;
-  }): Promise<
-    Result<
-      {
-        readonly flowId: string;
-        readonly account: {
-          readonly id: string;
-          readonly displayName: string;
-          readonly username?: string;
-        };
-      },
-      string
-    >
-  > {
+  }): Promise<Result<OperatorLoginResult, string>> {
     return this.request(
       {
         op: 'login.begin',

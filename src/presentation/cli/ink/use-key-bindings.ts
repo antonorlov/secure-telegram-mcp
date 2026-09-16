@@ -15,11 +15,11 @@ import type { PickerAction, PickerState } from '../picker/index.js';
 
 export interface UseKeyBindingsOptions {
   readonly state: PickerState;
-  /** Disable capture (e.g. when an overlay owns input). */
+  // Disable capture (e.g. when an overlay owns input).
   readonly isActive: boolean;
-  /** A bound action fired (dispatch it into the reducer). */
+  // A bound action fired (dispatch it into the reducer).
   readonly onAction: (action: PickerAction) => void;
-  /** A meta binding fired (find / help / back / quit — the shell decides). */
+  // A meta binding fired (find / help / back / quit — the shell decides).
   readonly onMeta: (binding: KeyBinding) => void;
 }
 

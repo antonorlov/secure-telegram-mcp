@@ -8,7 +8,7 @@ import { describe, it, expect } from 'vitest';
 import { degradeToPartialPage } from '../../src/presentation/mcp/registry.js';
 import { checkByteCap } from '../../src/shared/index.js';
 
-/** A page whose items are ~200 bytes each once serialized. */
+// A page whose items are ~200 bytes each once serialized.
 const pageOf = (n: number): Record<string, unknown> => ({
   messages: Array.from({ length: n }, (_, i) => ({
     messageId: i + 1,

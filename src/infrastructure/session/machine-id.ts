@@ -1,18 +1,11 @@
 /**
- * Host machine-id reader for the SMOOTH posture. Yields a STABLE, per-host
- * machine identifier (Linux `/etc/machine-id` -> dbus fallback, macOS
- * `IOPlatformUUID`, Windows `MachineGuid`), used as the KEK input for the
- * machine slot (each blob adds its own fresh salt). It is NOT a secret, it
- * NEVER touches MAC/IP, and it has NO native dep.
- *
- * `normaliseId` FAILS CLOSED on the real footgun: an empty/cleared machine-id or
- * an all-zero UUID (a template/golden image awaiting first-boot regeneration)
- * collapses to `undefined`, so the store refuses to seal/unlock a machine slot
- * against a non-identifying id and steers the operator to a PIN.
- *
- * Depends on the small injectable {@link HostProbe} seam (platform + file/command
- * reads), so tests can simulate a different machine. The probe is the ONLY part
- * bound to `node:*`; the reader is pure over it.
+ * Stable per-host machine id (Linux `/etc/machine-id` with a dbus fallback, macOS
+ * `IOPlatformUUID`, Windows `MachineGuid`), used as the KEK input for the machine slot — each
+ * blob still adds its own salt. It is not a secret, never touches MAC or IP, and needs no
+ * native dependency.
+ * `normaliseId` FAILS CLOSED on the real footgun: an empty machine-id or an all-zero UUID — a
+ * template awaiting first-boot regeneration — collapses to `undefined`, so the store refuses to
+ * seal against a non-identifying id and steers the operator to a PIN.
  */
 import { readFile } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
@@ -20,36 +13,26 @@ import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 
-/**
- * The stable machine id for this install, or `undefined` when the host exposes
- * none (caller then fails closed / steers the operator to a PIN). The concrete
- * per-OS reader is injected so the mismatch path is testable without the host.
- */
+// `undefined` when the host exposes none; the caller then fails closed and steers the operator
+// to a PIN.
 export interface MachineIdReader {
   read(): Promise<string | undefined>;
 }
 
-/**
- * The injected OS seam. Every method is TOTAL — it NEVER throws and NEVER leaks a
- * secret; absence/failure collapses to `undefined`.
- */
+// Every method is TOTAL: it never throws and never leaks a secret — absence or failure
+// collapses to `undefined`.
 export interface HostProbe {
   readonly platform: NodeJS.Platform;
-  /** Read a UTF-8 file; `undefined` when absent/unreadable. */
   readText(path: string): Promise<string | undefined>;
-  /** Run a command (NO shell) capturing trimmed stdout; `undefined` on failure. */
   run(command: string, args: readonly string[]): Promise<string | undefined>;
 }
 
-/** Hard cap so a hung/forked probe can never wedge setup. */
+// Hard cap so a hung or forked probe can never wedge setup.
 const PROBE_TIMEOUT_MS = 2_000;
-/** Probe stdout is tiny; cap the buffer to refuse pathological output. */
+// Probe stdout is tiny; cap the buffer to refuse pathological output.
 const PROBE_MAX_BUFFER = 64 * 1024;
 
-/**
- * Production {@link HostProbe} over `node:*`. The only `node:fs`/`child_process`
- * binding in this module. `run` uses `execFile` (no shell) to avoid injection.
- */
+// `run` uses execFile with no shell, to avoid injection.
 export const nodeHostProbe = (): HostProbe => ({
   platform: process.platform,
   readText: async (path: string): Promise<string | undefined> => {
@@ -78,11 +61,8 @@ export const nodeHostProbe = (): HostProbe => ({
   },
 });
 
-/**
- * Placeholder ids that scrypt-binding to would be a footgun: an empty/cleared
- * machine-id, or an all-zero UUID, signal a template/uninitialised host rather
- * than a real install. Normalised to lowercase before comparison.
- */
+// An empty machine-id or an all-zero UUID signals a template or uninitialised host rather than
+// a real install; compared lowercase.
 const PLACEHOLDER_IDS: ReadonlySet<string> = new Set([
   '',
   'uninitialized',
@@ -90,7 +70,6 @@ const PLACEHOLDER_IDS: ReadonlySet<string> = new Set([
   '00000000-0000-0000-0000-000000000000',
 ]);
 
-/** Trim + collapse to a real id, or `undefined` for blank/placeholder values. */
 const normaliseId = (raw: string | undefined): string | undefined => {
   if (raw === undefined) return undefined;
   const value = raw.trim();
@@ -103,10 +82,8 @@ const LINUX_MACHINE_ID_PATHS: readonly string[] = [
   '/var/lib/dbus/machine-id',
 ];
 
-/**
- * Concrete per-OS {@link MachineIdReader}. Pure over an injected {@link HostProbe}
- * (default: {@link nodeHostProbe}); inject a fake to simulate a different host.
- */
+// Concrete per-OS {@link MachineIdReader}. Pure over an injected {@link HostProbe} (default:
+// {@link nodeHostProbe}); inject a fake to simulate a different host.
 export class SystemMachineIdReader implements MachineIdReader {
   private readonly probe: HostProbe;
 

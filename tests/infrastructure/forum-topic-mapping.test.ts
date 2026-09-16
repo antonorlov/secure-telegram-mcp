@@ -1,19 +1,8 @@
 /**
- * Forum-topic mapping — the pure translation rules the feature hangs on:
- *
- *  - `mapMessage` topic derivation: in forums the reply header doubles as
- *    topic ADDRESSING, so a top-level topic message must surface `topicId`
- *    WITHOUT a misleading `replyToMessageId` (the pre-existing bug), a genuine
- *    in-topic reply surfaces both, headerless forum messages live in General
- *    (id 1), and non-forum chats never carry a topicId.
- *  - `mapTopic`: Api.ForumTopic -> TopicDto with the title sanitized under the
- *    `topic_title` untrusted kind.
- *  - `topicReplyParams`: the write-side SSOT for InputReplyToMessage — topMsgId
- *    only alongside replyToMsgId; General (1) addressed by omission.
- *
- * All fixtures are synthetic English placeholders (never real data). Wire
- * shape is imposed the same way gramjs-mappers.test.ts does: absent optional
- * TL fields are null, not undefined.
+ * The pure translation rules the forum feature hangs on: in forums the reply header doubles as
+ * topic addressing, so a top-level topic message surfaces `topicId` without a misleading
+ * `replyToMessageId`, headerless messages live in General, and non-forum chats never carry a
+ * topicId.
  */
 import { describe, it, expect } from 'vitest';
 import { Api } from 'telegram';
@@ -34,10 +23,10 @@ const depsFor = (isForum: boolean): MessageMapDeps => ({
   isForumChat: (): boolean => isForum,
 });
 
-/** GramJS accepts plain numbers for TL `long` fields at runtime. */
+// GramJS accepts plain numbers for TL `long` fields at runtime.
 const asLong = (n: number): Api.long => n as unknown as Api.long;
 
-/** Impose the wire deserializer's shape: absent optional TL fields are null. */
+// Impose the wire deserializer's shape: absent optional TL fields are null.
 const asWire = <T extends object>(value: T, nullFields: readonly string[]): T => {
   const patch: Record<string, null> = {};
   for (const f of nullFields) patch[f] = null;

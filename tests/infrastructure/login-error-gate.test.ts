@@ -1,10 +1,7 @@
 /**
- * Regression for the QR/phone login error-spam: a wrong 2FA password could reset
- * the login auth key, after which GramJS's `while(1)` sign-in loop re-invoked
- * account.GetPassword every iteration and threw `AUTH_KEY_UNREGISTERED` forever
- * (no re-prompt) because our `onError` hook only stopped on abort. The gate must
- * stop the loop on abort, on a terminal error, or at the attempt cap — and
- * record the true cause so the operator sees an actionable message.
+ * Regression for login error-spam: a wrong 2FA password could reset the login auth key, after
+ * which GramJS's sign-in loop re-invoked account.GetPassword forever. The gate must stop on
+ * abort, on a terminal error, or at the attempt cap — and record the true cause.
  */
 import { describe, it, expect } from 'vitest';
 

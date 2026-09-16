@@ -31,49 +31,43 @@ import {
   usernameOf,
 } from './gramjs-mappers.js';
 
-// ---------------------------------------------------------------------------
-// Boundary DTOs — plain data, no GramJS types ever escape this module.
-// ---------------------------------------------------------------------------
-
-/** The authenticated account identity (for a friendly "logged in as …"). */
+// The authenticated account identity (for a friendly "logged in as …").
 export interface LoginAccountDto {
   readonly id: string;
   readonly displayName: string;
   readonly username?: string;
 }
 
-/** Interactive callbacks for the QR login flow (mirrors the operator port). */
+// Interactive callbacks for the QR login flow (mirrors the operator port).
 export interface QrLoginParams {
-  /**
-   * Invoked each time Telegram mints/refreshes the login token. The CLI renders
-   * the `tg://login` URL as a scannable QR (and/or a headless PNG fallback).
-   */
+  // Invoked each time Telegram mints/refreshes the login token. The CLI renders the
+  // `tg://login` URL as a scannable QR (and/or a headless PNG fallback).
   readonly onQrCode: (info: {
     readonly url: string;
     readonly expiresInSeconds: number;
   }) => void | Promise<void>;
-  /** SRP-only 2FA password provider (invoked only if the account has 2FA). */
+  // SRP-only 2FA password provider (invoked only if the account has 2FA).
   readonly getPassword: (hint?: string) => Promise<string>;
-  /** Abort signal; aborting tears down the pending login. */
+  // Abort signal; aborting tears down the pending login.
   readonly signal: AbortSignal;
 }
 
-/** Interactive callbacks for the phone-code login flow (mirrors the operator port). */
+// Interactive callbacks for the phone-code login flow (mirrors the operator port).
 export interface PhoneLoginParams {
   readonly getPhoneNumber: () => Promise<string>;
   readonly getCode: (isCodeViaApp?: boolean) => Promise<string>;
-  /** SRP-only 2FA password provider (invoked only if the account has 2FA). */
+  // SRP-only 2FA password provider (invoked only if the account has 2FA).
   readonly getPassword: (hint?: string) => Promise<string>;
 }
 
 export interface GramjsAccountLoginClientOptions {
   readonly apiId: number;
   readonly apiHash: string;
-  /** Untrusted-content chokepoint for enumerated titles/usernames. */
+  // Untrusted-content chokepoint for enumerated titles/usernames.
   readonly sanitizer: UnicodeSanitizer;
-  /** Optional NON-SECRET diagnostic sink; never receives session material. */
+  // Optional NON-SECRET diagnostic sink; never receives session material.
   readonly logger?: (message: string) => void;
-  /** Lifecycle-test seam; production builds the real TelegramClient below. */
+  // Lifecycle-test seam; production builds the real TelegramClient below.
   readonly clientFactory?: () => TelegramClient;
 }
 
@@ -82,22 +76,23 @@ const DEFAULTS = {
   floodSleepThresholdSeconds: 10,
 } as const;
 
-/** A login token rendered as the standard tg:// deep link a Telegram app scans. */
+// A login token rendered as the standard tg:// deep link a Telegram app scans.
 const qrLoginUrl = (token: Buffer): string =>
   `tg://login?token=${token.toString('base64url')}`;
 
-// ---------------------------------------------------------------------------
-// Login-error gate — GramJS's sign-in flows are `while(1)` loops that re-invoke
-// account.GetPassword / re-prompt every iteration and only stop when our
-// `onError` hook resolves `true`. Returning `false` unless aborted meant an
-// UNRECOVERABLE error (e.g. `AUTH_KEY_UNREGISTERED`) spun the loop into tight
-// error-spam with no re-prompt. This gate stops on abort, on a terminal error, or
-// once a small attempt cap is hit (so a wrong 2FA password re-prompts a bounded
-// number of times), and records the last real error so the caller can map the
-// true cause (GramJS otherwise throws a generic cancel that hides it).
-// ---------------------------------------------------------------------------
+/**
+ * --------------------------------------------------------------------------- Login-error gate
+ * — GramJS's sign-in flows are `while(1)` loops that re-invoke account.GetPassword / re-prompt
+ * every iteration and only stop when our `onError` hook resolves `true`. Returning `false`
+ * unless aborted meant an UNRECOVERABLE error (e.g. `AUTH_KEY_UNREGISTERED`) spun the loop into
+ * tight error-spam with no re-prompt. This gate stops on abort, on a terminal error, or once a
+ * small attempt cap is hit (so a wrong 2FA password re-prompts a bounded number of times), and
+ * records the last real error so the caller can map the true cause (GramJS otherwise throws a
+ * generic cancel that hides it).
+ * ---------------------------------------------------------------------------
+ */
 
-/** TL error codes from which retrying the sign-in loop can NEVER recover. */
+// TL error codes from which retrying the sign-in loop can NEVER recover.
 const TERMINAL_LOGIN_ERRORS: ReadonlySet<string> = new Set([
   'AUTH_KEY_UNREGISTERED',
   'AUTH_KEY_DUPLICATED',
@@ -108,7 +103,7 @@ const TERMINAL_LOGIN_ERRORS: ReadonlySet<string> = new Set([
   'USER_DEACTIVATED_BAN',
 ]);
 
-/** Total sign-in error iterations tolerated before the loop is force-stopped. */
+// Total sign-in error iterations tolerated before the loop is force-stopped.
 const MAX_LOGIN_ATTEMPTS = 3;
 
 const KNOWN_LOGIN_DIAGNOSTICS = Object.freeze([
@@ -118,7 +113,7 @@ const KNOWN_LOGIN_DIAGNOSTICS = Object.freeze([
   'PHONE_CODE_EXPIRED',
 ]);
 
-/** The TL error code (`RPCError.errorMessage`) or a best-effort message string. */
+// The TL error code (`RPCError.errorMessage`) or a best-effort message string.
 const loginErrorCode = (error: unknown): string =>
   error instanceof errors.RPCError
     ? error.errorMessage
@@ -126,7 +121,7 @@ const loginErrorCode = (error: unknown): string =>
       ? error.message
       : String(error);
 
-/** A bounded code for logs; arbitrary exception messages never reach the sink. */
+// A bounded code for logs; arbitrary exception messages never reach the sink.
 const loginErrorDiagnostic = (error: unknown): string => {
   const raw = loginErrorCode(error);
   const known = KNOWN_LOGIN_DIAGNOSTICS.find((code) => raw.includes(code));
@@ -137,11 +132,8 @@ const loginErrorDiagnostic = (error: unknown): string => {
     : 'NON_RPC_ERROR';
 };
 
-/**
- * True for errors the sign-in loop cannot recover from by retrying — a reset or
- * unregistered login auth key, a revoked/expired session, a deactivated account.
- * Pure; exported for tests.
- */
+// True for errors the sign-in loop cannot recover from by retrying — a reset or unregistered
+// login auth key, a revoked/expired session, a deactivated account. Pure; exported for tests.
 export const isTerminalLoginError = (error: unknown): boolean => {
   const code = loginErrorCode(error);
   for (const terminal of TERMINAL_LOGIN_ERRORS) {
@@ -152,10 +144,8 @@ export const isTerminalLoginError = (error: unknown): boolean => {
   return false;
 };
 
-/**
- * Map a login failure to a secret-free, actionable AppError. Known classes get a
- * human message; everything else falls back to the shared {@link mapGramjsError}.
- */
+// Map a login failure to a secret-free, actionable AppError. Known classes get a human message;
+// everything else falls back to the shared {@link mapGramjsError}.
 const mapLoginError = (error: unknown): AppError => {
   const code = loginErrorCode(error);
   if (isTerminalLoginError(error)) {
@@ -179,11 +169,11 @@ const mapLoginError = (error: unknown): AppError => {
   return mapGramjsError(error, 'login');
 };
 
-/** A stop-decision gate for GramJS's sign-in `onError` hook (see block above). */
+// A stop-decision gate for GramJS's sign-in `onError` hook (see block above).
 export interface LoginErrorGate {
-  /** GramJS keeps looping while this resolves `false`; `true` stops the loop. */
+  // GramJS keeps looping while this resolves `false`; `true` stops the loop.
   readonly onError: (error: Error) => Promise<boolean>;
-  /** The last error seen — used to map the true cause after a forced stop. */
+  // The last error seen — used to map the true cause after a forced stop.
   lastError(): unknown;
 }
 
@@ -321,12 +311,12 @@ export class GramjsAccountLoginClient {
     }
   }
 
-  /** The decrypted session string to persist. NEVER log this. */
+  // The decrypted session string to persist. NEVER log this.
   public exportSession(): string {
     return this.session.save();
   }
 
-  /** Tear down the temporary unscoped login client. */
+  // Tear down the temporary unscoped login client.
   public dispose(): Promise<void> {
     this.disposed = true;
     this.senders.quiesce();

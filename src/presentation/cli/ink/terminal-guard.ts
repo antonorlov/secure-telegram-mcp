@@ -21,13 +21,13 @@ const CURSOR_SHOW = '[?25h';
 
 export type GuardSignal = 'SIGINT' | 'SIGTERM';
 
-/** Signals the guard restores on, with their conventional exit codes (128+signo). */
+// Signals the guard restores on, with their conventional exit codes (128+signo).
 const SIGNAL_EXIT_CODES: readonly (readonly [GuardSignal, number])[] = Object.freeze([
   ['SIGINT', 130],
   ['SIGTERM', 143],
 ]);
 
-/** The injectable terminal side-effects (a fake backs the tests). */
+// The injectable terminal side-effects (a fake backs the tests).
 export interface TerminalIo {
   write(sequence: string): void;
   readonly isTty: boolean;
@@ -60,10 +60,8 @@ export const createProcessTerminalIo = (
   },
 });
 
-/**
- * The alt-screen terminal guard. Construct once per wizard run; `run` brackets the
- * Ink runtime with enter/restore and the signal safety net.
- */
+// The alt-screen terminal guard. Construct once per wizard run; `run` brackets the Ink runtime
+// with enter/restore and the signal safety net.
 export class AltScreenTerminalGuard {
   private readonly io: TerminalIo;
   private activeInterrupt: (() => void) | undefined;
