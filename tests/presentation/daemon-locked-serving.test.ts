@@ -7,7 +7,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { connect as netConnect, type Socket } from 'node:net';
+import { connect as netConnect } from 'node:net';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
@@ -47,6 +47,7 @@ import {
   FakeClock,
   NO_DENIED,
 } from '../application/_support.js';
+import { CHEAP_KDF, SocketClientTransport } from '../_support/socket-mcp-client.js';
 
 // A regex asserting the lock error leaks NO scope/chat/session/secret/path.
 const SECRET_BEARING = /session\b|scope|chat|passphrase|\bpin\b|\/tmp|\/Users|\/home/i;
@@ -267,60 +268,6 @@ describe('locked-but-serving (connection level): fail-closed, secret-free, share
 });
 
 // Cheap scrypt cost so hardening the app key in tests is instant.
-const CHEAP = {
-  pin: { N: 1 << 8, r: 8, p: 1 },
-  machine: { N: 1 << 8, r: 8, p: 1 },
-};
-
-// Minimal newline-delimited-JSON MCP client transport over a net.Socket.
-class SocketClientTransport {
-  private socket: Socket | undefined;
-  private buf = Buffer.alloc(0);
-  public onmessage?: (m: unknown) => void;
-  public onclose?: () => void;
-  public onerror?: (e: Error) => void;
-  public constructor(
-    private readonly address: string,
-    private readonly handshake: Record<string, unknown>,
-  ) {}
-  public start(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const socket = netConnect(this.address);
-      this.socket = socket;
-      socket.once('connect', () => {
-        socket.write(`${JSON.stringify(this.handshake)}\n`);
-        socket.on('data', (c: Buffer) => { this.onData(c); });
-        socket.on('close', () => this.onclose?.());
-        resolve();
-      });
-      socket.once('error', reject);
-    });
-  }
-  private onData(chunk: Buffer): void {
-    this.buf = Buffer.concat([this.buf, chunk]);
-    let nl = this.buf.indexOf(0x0a);
-    while (nl !== -1) {
-      const line = this.buf.subarray(0, nl).toString('utf8');
-      this.buf = this.buf.subarray(nl + 1);
-      if (line.trim().length > 0) {
-        try {
-          this.onmessage?.(JSON.parse(line));
-        } catch {
-          // a non-JSON refusal line — ignore
-        }
-      }
-      nl = this.buf.indexOf(0x0a);
-    }
-  }
-  public send(message: unknown): Promise<void> {
-    this.socket?.write(`${JSON.stringify(message)}\n`);
-    return Promise.resolve();
-  }
-  public close(): Promise<void> {
-    this.socket?.end();
-    return Promise.resolve();
-  }
-}
 
 describe('locked-but-serving (socket level): real daemon, operator-plane unlock', () => {
   let dir: string;
@@ -349,7 +296,7 @@ describe('locked-but-serving (socket level): real daemon, operator-plane unlock'
     const seedStore = new EncryptedFileSessionStore({
       directory: sessionDir,
       keySource: { kind: 'passphrase', passphrase: PIN },
-      kdf: CHEAP,
+      kdf: CHEAP_KDF,
     });
     await seedStore.savePolicy(await readFile(policyPath));
     expect(await seedStore.appPosture()).toBe('hardened');

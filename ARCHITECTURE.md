@@ -81,7 +81,9 @@ project-owned value objects and DTOs.
 - `npm run ci` runs type checking, ESLint, the guard, Knip, and tests.
 
 These checks cover only their encoded patterns; they are not a dependency-graph
-or semantic verifier.
+or semantic verifier. In particular, they match direct imports of `telegram`, so a
+type that transitively names a GramJS type — such as `TelegramClientFactory` —
+passes both while still carrying the dependency.
 
 ## Capability boundaries
 
@@ -286,6 +288,13 @@ Changes must preserve the following architectural properties:
    case and receive only a scoped Telegram capability.
 3. GramJS types and clients must remain inside infrastructure and the composition
    root must not pass unscoped clients into MCP tool handlers.
+   Documented exception: `TelegramClientFactory`
+   (`src/infrastructure/telegram/gramjs-telegram-gateway.ts`) names a GramJS type
+   and is referenced by `DaemonOptions` and `createSessionStack`. Naming the type
+   in an alias does not hide the dependency, so this confinement rests on review,
+   not on tooling. The factory is a composition-root test seam: production never
+   sets it, client construction and use stay inside the gateway, and no GramJS
+   value or type reaches the domain, the application layer, or tool handlers.
 4. Authorization for any executable endpoint must come from a validated sealed
    policy. The editable draft may influence locked discovery only.
 5. New protocol inputs, outputs, queues, and file operations require explicit

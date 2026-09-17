@@ -4,6 +4,7 @@ export { SystemClock } from './clock/system-clock.js';
 
 export { UnicodeSanitizer } from './sanitize/unicode-sanitizer.js';
 export { GramjsTelegramGateway } from './telegram/gramjs-telegram-gateway.js';
+export type { TelegramClientFactory } from './telegram/gramjs-telegram-gateway.js';
 
 export { DialogFilterFolderResolver } from './telegram/DialogFilterFolderResolver.js';
 

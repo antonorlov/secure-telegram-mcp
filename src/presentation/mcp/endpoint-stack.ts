@@ -23,6 +23,7 @@ import {
   DialogFilterFolderResolver,
   GramjsTelegramGateway,
   UnicodeSanitizer,
+  type TelegramClientFactory,
 } from '../../infrastructure/index.js';
 import { isErr } from '../../shared/index.js';
 import { buildEndpointServer } from './server.js';
@@ -64,6 +65,7 @@ export const createSessionStack = (input: {
   readonly mediaRootDir: string;
   readonly clock: Clock;
   readonly log: (message: string) => void;
+  readonly clientFactory?: TelegramClientFactory;
 }): SessionStack => {
   const sanitizer = new UnicodeSanitizer();
   const gateway = new GramjsTelegramGateway({
@@ -74,6 +76,7 @@ export const createSessionStack = (input: {
     clock: input.clock,
     mediaRootDir: input.mediaRootDir,
     logger: input.log,
+    ...(input.clientFactory !== undefined ? { clientFactory: input.clientFactory } : {}),
   });
   return {
     gateway,

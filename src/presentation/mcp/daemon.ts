@@ -63,6 +63,7 @@ import {
   type EndpointRuntime,
   type SessionStack,
 } from './endpoint-stack.js';
+import type { TelegramClientFactory } from '../../infrastructure/index.js';
 import { AccountRuntimes } from './account-runtimes.js';
 import { PolicyContexts } from './policy-contexts.js';
 import { BoundedStreamServerTransport } from './bounded-stream-transport.js';
@@ -322,6 +323,8 @@ export interface DaemonOptions {
   ) => ConfigRepository;
   readonly plainConfigRepository: ConfigRepository;
   readonly configParser: ConfigDocumentParser;
+  // Unset in production; unreachable from config, policy, env or any protocol surface.
+  readonly clientFactory?: TelegramClientFactory;
 }
 
 const DEFAULT_QUOTA = {
@@ -500,6 +503,9 @@ export const daemon = async (options: DaemonOptions): Promise<void> => {
         mediaRootDir: options.mediaRootDir,
         clock,
         log,
+        ...(options.clientFactory !== undefined
+          ? { clientFactory: options.clientFactory }
+          : {}),
       });
     });
   };

@@ -121,6 +121,9 @@ const MAX_LIVE_MEDIA_HANDLES = 64;
 // Best-effort idempotency replay cache; oldest evicted first.
 const MAX_IDEMPOTENCY_KEYS = 1024;
 
+// Composition-root seam; names a GramJS type — see ARCHITECTURE.md, constraint 3.
+export type TelegramClientFactory = (sessionRef: string) => TelegramClient;
+
 export interface GramjsTelegramGatewayOptions {
   readonly apiId: number;
   readonly apiHash: string;
@@ -138,8 +141,7 @@ export interface GramjsTelegramGatewayOptions {
   readonly clock: Clock;
   // Non-secret diagnostics only; never receives session material.
   readonly logger?: (message: string) => void;
-  // Injection point for the lifecycle tests; defaults to the real GramJS client.
-  readonly clientFactory?: () => TelegramClient;
+  readonly clientFactory?: TelegramClientFactory;
 }
 
 interface ScopeBinding {
@@ -574,7 +576,7 @@ export class GramjsTelegramGateway implements DialogFilterClientProvider {
     let destroyAttempted = false;
     try {
       client =
-        this.options.clientFactory?.() ??
+        this.options.clientFactory?.(sessionRef) ??
         new TelegramClient(
           new sessions.StringSession(this.options.sessionSecret),
           this.options.apiId,
