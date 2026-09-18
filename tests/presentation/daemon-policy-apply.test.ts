@@ -8,26 +8,21 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { connect as netConnect } from 'node:net';
-
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 
 import type {
   ConfigRepository,
   SealedPolicyStore,
 } from '../../src/application/index.js';
-import {
-  daemonAddress,
-  EncryptedFileSessionStore,
-  operatorAddress,
-} from '../../src/infrastructure/index.js';
+import { EncryptedFileSessionStore } from '../../src/infrastructure/index.js';
 import { FileConfigRepository } from '../../src/infrastructure/config/file-config-repository.js';
 import { SealedPolicyRepository } from '../../src/infrastructure/config/sealed-policy-repository.js';
 import { hashEndpointToken, mintEndpointToken } from '../../src/infrastructure/endpoint-token.js';
-import { daemon } from '../../src/presentation/mcp/daemon.js';
 import { OperatorClient } from '../../src/presentation/operator/client.js';
 import { applyConfigDraftForTest } from '../security/sealed-policy/_support.js';
 import { CHEAP_KDF, SocketClientTransport } from '../_support/socket-mcp-client.js';
+import { DaemonHarness } from '../_support/daemon-harness.js';
+import { guardProcessResources } from '../_support/resource-guards.js';
 
 // Cheap scrypt cost so hardening the posture in tests is instant.
 
@@ -36,6 +31,10 @@ describe('atomic policy apply over the operator socket', () => {
   let sessionDir: string;
   let configPath: string;
   let address: string;
+  // Tracked so teardown closes them even when a case fails mid-assertion.
+  let harnesses: DaemonHarness[];
+  let operators: OperatorClient[];
+  let clients: Client[];
   const token = mintEndpointToken();
   const PIN = 'correct-pin-value';
 
@@ -86,33 +85,9 @@ describe('atomic policy apply over the operator socket', () => {
     expect(await store.appPosture()).toBe('hardened');
   };
 
-  const waitUp = async (): Promise<void> => {
-    address = daemonAddress(sessionDir);
-    let up = false;
-    for (let i = 0; i < 100 && !up; i += 1) {
-      await new Promise((r) => setTimeout(r, 50));
-      up = await new Promise<boolean>((r) => {
-        const probe = netConnect(address);
-        probe.once('connect', () => { probe.destroy(); r(true); });
-        probe.once('error', () => { r(false); });
-      });
-    }
-    expect(up).toBe(true);
-    const operator = operatorAddress(sessionDir);
-    let operatorUp = false;
-    for (let i = 0; i < 100 && !operatorUp; i += 1) {
-      await new Promise((r) => setTimeout(r, 10));
-      operatorUp = await new Promise<boolean>((r) => {
-        const probe = netConnect(operator);
-        probe.once('connect', () => { probe.destroy(); r(true); });
-        probe.once('error', () => { r(false); });
-      });
-    }
-    expect(operatorUp).toBe(true);
-  };
-
   const listToolNames = async (): Promise<string[]> => {
     const client = new Client({ name: 'test', version: '0.0.0' });
+    clients.push(client);
     const transport = new SocketClientTransport(address, { v: 1, token });
     await client.connect(transport);
     const { tools } = await client.listTools();
@@ -124,7 +99,7 @@ describe('atomic policy apply over the operator socket', () => {
   // authenticate over the separate operator plane.
   const startUnlockedDaemon = async (): Promise<OperatorClient> => {
     const plain = new FileConfigRepository({ filePath: configPath });
-    void daemon({
+    const harness = await DaemonHarness.start({
       makeConfigRepository: (store) => policyRepoFor(store),
       plainConfigRepository: plain,
       configParser: plain,
@@ -132,13 +107,14 @@ describe('atomic policy apply over the operator socket', () => {
       sessionKey: { kind: 'machine' },
       auditLogPath: join(dir, 'audit.log'),
       mediaRootDir: join(dir, 'media'),
-      logger: (): void => undefined,
     });
-    await waitUp();
+    harnesses.push(harness);
+    address = harness.address();
     const operator = new OperatorClient({
       sessionDir,
       daemonCommand: { execPath: '/unused', args: [] },
     });
+    operators.push(operator);
     expect((await operator.connect()).ok).toBe(true);
     expect(
       (await operator.authenticate({ kind: 'passphrase', passphrase: PIN })).ok,
@@ -158,12 +134,25 @@ describe('atomic policy apply over the operator socket', () => {
     'mark_read', 'forward_message', 'send_reaction', 'prepare_media', 'send_media',
   ].sort();
 
+  guardProcessResources();
+
   beforeEach(async () => {
+    harnesses = [];
+    operators = [];
+    clients = [];
     dir = await mkdtemp(join(tmpdir(), 'tmcp-policy-apply-'));
     sessionDir = join(dir, 'secrets');
     configPath = join(dir, 'config.json');
   });
+  // Removing a socket path does not close the server listening on it: every daemon started
+  // here is shut down, and every client closed, before the fixture directory goes.
   afterEach(async () => {
+    for (const client of clients) await client.close().catch(() => undefined);
+    for (const operator of operators) operator.close();
+    for (const harness of harnesses) {
+      await harness.stop();
+      expect(harness.exitCodes()).toEqual([0]);
+    }
     await rm(dir, { recursive: true, force: true });
   });
 
@@ -272,21 +261,22 @@ describe('atomic policy apply over the operator socket', () => {
       await writeConfig(['read']);
       await applyPolicy(); // hardened -> operator authentication is required
       const plain = new FileConfigRepository({ filePath: configPath });
-      void daemon({
-        makeConfigRepository: (store) => policyRepoFor(store),
-        plainConfigRepository: plain,
-        configParser: plain,
-        sessionDir,
-        sessionKey: { kind: 'machine' },
-        auditLogPath: join(dir, 'audit.log'),
-        mediaRootDir: join(dir, 'media'),
-        logger: (): void => undefined,
-      });
-      await waitUp();
+      harnesses.push(
+        await DaemonHarness.start({
+          makeConfigRepository: (store) => policyRepoFor(store),
+          plainConfigRepository: plain,
+          configParser: plain,
+          sessionDir,
+          sessionKey: { kind: 'machine' },
+          auditLogPath: join(dir, 'audit.log'),
+          mediaRootDir: join(dir, 'media'),
+        }),
+      );
       const operator = new OperatorClient({
         sessionDir,
         daemonCommand: { execPath: '/unused', args: [] },
       });
+      operators.push(operator);
       expect((await operator.connect()).ok).toBe(true);
 
       const wrong = { kind: 'passphrase', passphrase: 'not-the-pin' } as const;

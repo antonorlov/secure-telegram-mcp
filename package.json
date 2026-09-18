@@ -26,10 +26,10 @@
     "guard": "node scripts/check-architecture.mjs",
     "knip": "knip",
     "test": "vitest run",
-    "test:pty": "npm run build && INCLUDE_E2E=1 vitest run tests/e2e/setup-pty.test.ts",
     "ci": "npm run typecheck && npm run lint && npm run guard && npm run knip && npm run test",
     "dev": "node --import tsx/esm src/presentation/cli/main.ts",
-    "prepack": "npm run build && node scripts/check-dist.mjs"
+    "prepack": "npm run build && node scripts/check-dist.mjs",
+    "test:e2e": "npm run build && INCLUDE_E2E=1 vitest run tests/e2e --no-file-parallelism"
   },
   "dependencies": {
     "@inkjs/ui": "2.0.0",

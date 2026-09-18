@@ -27,5 +27,5 @@ jobs:
         run: npm run test
       - name: Build
         run: npm run build
-      - name: PTY e2e (isolated, after build)
-        run: npm run test:pty
+      - name: E2E (isolated, after build)
+        run: npm run test:e2e

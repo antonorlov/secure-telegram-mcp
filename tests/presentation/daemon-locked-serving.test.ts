@@ -7,7 +7,6 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { connect as netConnect } from 'node:net';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
@@ -24,15 +23,8 @@ import {
 import { PermissionVerb, type Endpoint } from '../../src/domain/index.js';
 import { ok, type Result } from '../../src/shared/index.js';
 import { createConnectionServer } from '../../src/presentation/mcp/endpoint-stack.js';
-import {
-  daemon,
-  lockedContextProvider,
-} from '../../src/presentation/mcp/daemon.js';
-import {
-  daemonAddress,
-  EncryptedFileSessionStore,
-  operatorAddress,
-} from '../../src/infrastructure/index.js';
+import { lockedContextProvider } from '../../src/presentation/mcp/daemon.js';
+import { EncryptedFileSessionStore } from '../../src/infrastructure/index.js';
 import { FileConfigRepository } from '../../src/infrastructure/config/file-config-repository.js';
 import { SealedPolicyRepository } from '../../src/infrastructure/config/sealed-policy-repository.js';
 import { hashEndpointToken, mintEndpointToken } from '../../src/infrastructure/endpoint-token.js';
@@ -48,6 +40,8 @@ import {
   NO_DENIED,
 } from '../application/_support.js';
 import { CHEAP_KDF, SocketClientTransport } from '../_support/socket-mcp-client.js';
+import { DaemonHarness } from '../_support/daemon-harness.js';
+import { guardProcessResources } from '../_support/resource-guards.js';
 
 // A regex asserting the lock error leaks NO scope/chat/session/secret/path.
 const SECRET_BEARING = /session\b|scope|chat|passphrase|\bpin\b|\/tmp|\/Users|\/home/i;
@@ -273,19 +267,46 @@ describe('locked-but-serving (socket level): real daemon, operator-plane unlock'
   let dir: string;
   let sessionDir: string;
   let address: string;
+  // Tracked so teardown closes them even when a case fails mid-assertion.
+  let harnesses: DaemonHarness[];
+  let operators: OperatorClient[];
+  let clients: Client[];
   const token = mintEndpointToken();
   const PIN = 'correct-pin-value';
 
+  // Everything this section starts goes through here, so no daemon is left listening.
+  const startDaemon = async (
+    options: Parameters<typeof DaemonHarness.start>[0],
+  ): Promise<DaemonHarness> => {
+    const harness = await DaemonHarness.start(options);
+    harnesses.push(harness);
+    address = harness.address();
+    return harness;
+  };
+
+  guardProcessResources();
+
   beforeEach(async () => {
+    harnesses = [];
+    operators = [];
+    clients = [];
     dir = await mkdtemp(join(tmpdir(), 'tmcp-locked-'));
     sessionDir = join(dir, 'secrets');
   });
+  // Removing a socket path does not close the server listening on it.
   afterEach(async () => {
+    for (const client of clients) await client.close().catch(() => undefined);
+    for (const operator of operators) operator.close();
+    for (const harness of harnesses) {
+      await harness.stop();
+      expect(harness.exitCodes()).toEqual([0]);
+    }
     await rm(dir, { recursive: true, force: true });
   });
 
   const openMcp = async (tok: string = token): Promise<Client> => {
     const client = new Client({ name: 'test', version: '0.0.0' });
+    clients.push(client);
     const transport = new SocketClientTransport(address, { v: 1, token: tok });
     await client.connect(transport);
     return client;
@@ -302,37 +323,12 @@ describe('locked-but-serving (socket level): real daemon, operator-plane unlock'
     expect(await seedStore.appPosture()).toBe('hardened');
   };
 
-  // Poll the socket until the daemon is listening (sets `address`).
-  const waitUp = async (): Promise<void> => {
-    address = daemonAddress(sessionDir);
-    let up = false;
-    for (let i = 0; i < 100 && !up; i += 1) {
-      await new Promise((r) => setTimeout(r, 50));
-      up = await new Promise<boolean>((r) => {
-        const probe = netConnect(address);
-        probe.once('connect', () => { probe.destroy(); r(true); });
-        probe.once('error', () => { r(false); });
-      });
-    }
-    expect(up).toBe(true);
-    const operator = operatorAddress(sessionDir);
-    let operatorUp = false;
-    for (let i = 0; i < 100 && !operatorUp; i += 1) {
-      await new Promise((r) => setTimeout(r, 10));
-      operatorUp = await new Promise<boolean>((r) => {
-        const probe = netConnect(operator);
-        probe.once('connect', () => { probe.destroy(); r(true); });
-        probe.once('error', () => { r(false); });
-      });
-    }
-    expect(operatorUp).toBe(true);
-  };
-
   const openOperator = async (): Promise<OperatorClient> => {
     const operator = new OperatorClient({
       sessionDir,
       daemonCommand: { execPath: process.execPath, args: ['-e', ''] },
     });
+    operators.push(operator);
     expect((await operator.connect()).ok).toBe(true);
     return operator;
   };
@@ -361,8 +357,7 @@ describe('locked-but-serving (socket level): real daemon, operator-plane unlock'
       await seedHardenedPolicy(enforcedPath);
       const plain = new FileConfigRepository({ filePath: plainPath });
       const enforced = new FileConfigRepository({ filePath: enforcedPath });
-      const logs: string[] = [];
-      void daemon({
+      const harness = await startDaemon({
         makeConfigRepository: (store) =>
           new SealedPolicyRepository({
             configPath: plainPath,
@@ -375,11 +370,7 @@ describe('locked-but-serving (socket level): real daemon, operator-plane unlock'
         sessionKey: { kind: 'machine' },
         auditLogPath: join(dir, 'audit.log'),
         mediaRootDir: join(dir, 'media'),
-        logger: (message) => {
-          logs.push(message);
-        },
       });
-      await waitUp();
 
       const operator = await openOperator();
       expect(
@@ -387,7 +378,9 @@ describe('locked-but-serving (socket level): real daemon, operator-plane unlock'
       ).toBe(true);
       const client = await openMcp();
       expect((await client.listTools()).tools.length).toBeGreaterThan(0);
-      expect(logs.some((line) => line.includes('draft unavailable'))).toBe(true);
+      expect(
+        harness.logLines().some((line) => line.includes('draft unavailable')),
+      ).toBe(true);
       await client.close();
       operator.close();
     },
@@ -414,11 +407,7 @@ describe('locked-but-serving (socket level): real daemon, operator-plane unlock'
       );
       await seedHardenedPolicy(configPath);
       const config = new FileConfigRepository({ filePath: configPath });
-      let onExit!: (code: number) => void;
-      const exited = new Promise<number>((resolve) => {
-        onExit = resolve;
-      });
-      void daemon({
+      const harness = await startDaemon({
         makeConfigRepository: (store) =>
           new SealedPolicyRepository({ configPath, parser: config, store }),
         plainConfigRepository: config,
@@ -427,11 +416,8 @@ describe('locked-but-serving (socket level): real daemon, operator-plane unlock'
         sessionKey: { kind: 'machine' },
         auditLogPath: join(dir, 'audit.log'),
         mediaRootDir: join(dir, 'media'),
-        logger: () => undefined,
-        exit: onExit,
         env: { TELEGRAM_MCP_IDLE_HOURS: '0.00003' },
       });
-      await waitUp();
 
       const operator = await openOperator();
       expect(
@@ -439,16 +425,8 @@ describe('locked-but-serving (socket level): real daemon, operator-plane unlock'
       ).toBe(true);
       operator.close();
 
-      expect(
-        await Promise.race([
-          exited,
-          new Promise<number>((resolve) => {
-            setTimeout(() => {
-              resolve(-1);
-            }, 2_000);
-          }),
-        ]),
-      ).toBe(0);
+      // -1 means it never exited inside the window: idle auto-lock did not fire.
+      expect(await harness.waitForExit(2_000)).toBe(0);
     },
   );
 
@@ -473,7 +451,7 @@ describe('locked-but-serving (socket level): real daemon, operator-plane unlock'
       );
       await seedHardenedPolicy(configPath);
       const config = new FileConfigRepository({ filePath: configPath });
-      void daemon({
+      await startDaemon({
         makeConfigRepository: (store) =>
           new SealedPolicyRepository({ configPath, parser: config, store }),
         plainConfigRepository: config,
@@ -482,9 +460,7 @@ describe('locked-but-serving (socket level): real daemon, operator-plane unlock'
         sessionKey: { kind: 'passphrase', passphrase: PIN },
         auditLogPath: join(dir, 'audit.log'),
         mediaRootDir: join(dir, 'media'),
-        logger: () => undefined,
       });
-      await waitUp();
       await writeFile(join(sessionDir, 'policy.blob'), 'corrupt');
 
       const operator = await openOperator();
@@ -535,7 +511,7 @@ describe('locked-but-serving (socket level): real daemon, operator-plane unlock'
       // must bind EXECUTION to the enforced menu after unlock.
       const plain = new FileConfigRepository({ filePath: plainPath });
       const enforced = new FileConfigRepository({ filePath: enforcedPath });
-      void daemon({
+      await startDaemon({
         makeConfigRepository: (store) =>
           new SealedPolicyRepository({
             configPath: plainPath,
@@ -548,9 +524,7 @@ describe('locked-but-serving (socket level): real daemon, operator-plane unlock'
         sessionKey: { kind: 'machine' },
         auditLogPath: join(dir, 'audit.log'),
         mediaRootDir: join(dir, 'media'),
-        logger: () => undefined,
       });
-      await waitUp();
 
       // Connect to 'wider' DURING the locked window (it is on the plain menu):
       // the PIN-free menu resolves + tools/list succeeds.
@@ -625,7 +599,7 @@ describe('locked-but-serving (socket level): real daemon, operator-plane unlock'
 
       // Start the daemon with NO PIN channel -> it comes up LOCKED yet serving.
       const plain = new FileConfigRepository({ filePath: configPath });
-      void daemon({
+      await startDaemon({
         makeConfigRepository: (store) =>
           new SealedPolicyRepository({ configPath, parser: plain, store }),
         plainConfigRepository: plain,
@@ -634,10 +608,7 @@ describe('locked-but-serving (socket level): real daemon, operator-plane unlock'
         sessionKey: { kind: 'machine' },
         auditLogPath: join(dir, 'audit.log'),
         mediaRootDir: join(dir, 'media'),
-        logger: () => undefined,
       });
-
-      await waitUp();
 
       // (1) LOCKED daemon ESTABLISHES: initialize + tools/list succeed, and the
       // menu is the STATIC full set (execution — not the menu — is the ACL).

@@ -187,7 +187,7 @@ describe('SessionEnvelopeCodec', () => {
     }
   });
 
-  it('mints a unique DEK + IVs on every seal (no key/nonce reuse)', async () => {
+  it('mints a unique DEK + IVs on every seal: neither key opens the other payload', async () => {
     const slot = passphraseSlot('pin');
     const a = expectOk(await sealPayload(codec, [slot]));
     const b = expectOk(await sealPayload(codec, [slot]));
@@ -195,21 +195,54 @@ describe('SessionEnvelopeCodec', () => {
     expect(a.payload.iv).not.toBe(b.payload.iv);
     expect(a.payload.ciphertext).not.toBe(b.payload.ciphertext);
     expect(slotAt(a).iv).not.toBe(slotAt(b).iv);
-    // Different DEK => different wrapped DEK.
     expect(slotAt(a).wrappedDek).not.toBe(slotAt(b).wrappedDek);
+
+    /**
+     * Ciphertext alone proves nothing: a fresh IV changes every byte even under a REUSED key.
+     * Put each payload under the other envelope's unwrapped key — with distinct DEKs, GCM
+     * authentication must fail both ways.
+     */
+    for (const [keyOf, payloadOf] of [
+      [a, b],
+      [b, a],
+    ] as const) {
+      const crossed = await codec.openBytes(
+        { ...keyOf, payload: payloadOf.payload },
+        slotAt(keyOf),
+        slot.secret,
+      );
+      expect(isErr(crossed)).toBe(true);
+    }
+
+    // Each envelope still opens under its own slot, so the refusals above are about the key.
+    expect(await openPayload(codec, a, slotAt(a), slot.secret)).toEqual(PAYLOAD);
+    expect(await openPayload(codec, b, slotAt(b), slot.secret)).toEqual(PAYLOAD);
   });
 
-  it('re-sealing regenerates the DEK (wrappedDek differs for identical inputs)', async () => {
+  it('replaceBytes keeps the DEK and re-nonces the payload (a policy update, not a re-key)', async () => {
     const slot = passphraseSlot('pin');
     const first = expectOk(await sealPayload(codec, [slot]));
-    // Simulate a posture change that keeps the same payload + slot secret.
-    const second = expectOk(await sealPayload(codec, [slot]));
-    expect(slotAt(first).wrappedDek).not.toBe(slotAt(second).wrappedDek);
+    const updated = Buffer.from(JSON.stringify({ ...PAYLOAD, apiId: 7654321 }), 'utf8');
+    const second = expectOk(
+      await codec.replaceBytes(first, slotAt(first), slot.secret, updated),
+    );
 
-    // The fresh envelope still decrypts to the same payload.
-    expect(
-      await openPayload(codec, second, slotAt(second), slot.secret),
-    ).toEqual(PAYLOAD);
+    // Same wrapped key, fresh nonce: the recovery secret never has to be re-presented.
+    expect(slotAt(second).wrappedDek).toBe(slotAt(first).wrappedDek);
+    expect(second.payload.iv).not.toBe(first.payload.iv);
+
+    // The ORIGINAL envelope's key opens the replaced payload — the complement of the seal case.
+    const crossed = await codec.openBytes(
+      { ...first, payload: second.payload },
+      slotAt(first),
+      slot.secret,
+    );
+    expect(isOk(crossed)).toBe(true);
+    if (isOk(crossed)) crossed.value.fill(0);
+    expect(await openPayload(codec, second, slotAt(second), slot.secret)).toEqual({
+      ...PAYLOAD,
+      apiId: 7654321,
+    });
   });
 
   it('fails closed (no crash) when a tampered slot demands scrypt memory past the clamp', async () => {

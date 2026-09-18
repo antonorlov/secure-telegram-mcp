@@ -18,7 +18,21 @@ describe('ChatId', () => {
     }
   });
 
-  it('accepts large negative channel ids beyond Number.MAX_SAFE_INTEGER', () => {
+  /**
+   * The `-100…` channel space is only ~10^12, so a Number round-trip would survive it. These
+   * two are the first integers a double cannot represent, in both signs: they change value the
+   * moment anything converts them through `Number`.
+   */
+  it.each([9007199254740993n, -9007199254740993n])(
+    'carries id %s exactly, beyond Number.MAX_SAFE_INTEGER',
+    (id) => {
+      expect(unwrap(ChatId.create(id)).value).toBe(id);
+      expect(unwrap(ChatId.fromString(id.toString())).value).toBe(id);
+      expect(unwrap(ChatId.create(id)).toKey()).toBe(id.toString());
+    },
+  );
+
+  it('accepts a real large negative channel id', () => {
     const r = ChatId.create(-1001234567890n);
     expect(isOk(r)).toBe(true);
     if (isOk(r)) {
