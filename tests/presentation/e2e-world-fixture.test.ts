@@ -5,11 +5,20 @@
  */
 import { describe, it, expect } from 'vitest';
 import { connect as netConnect, createServer } from 'node:net';
+import { existsSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { TelegramClient } from 'telegram';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 
 import { daemonAddress } from '../../src/infrastructure/index.js';
+import {
+  hashEndpointToken,
+  mintEndpointToken,
+} from '../../src/infrastructure/endpoint-token.js';
+import { FakeTelegramClient } from '../_support/fake-telegram-client.js';
+import { SocketClientTransport } from '../_support/socket-mcp-client.js';
 import {
   DaemonHarness,
   type DaemonEntrypoint,
@@ -20,6 +29,7 @@ import { guardProcessResources } from '../_support/resource-guards.js';
 
 const PIN = 'correct-horse-battery';
 const EMPTY_CONFIG = { version: 1, endpoints: [] };
+const SCOPED_ID = 100;
 
 const isListening = (address: string): Promise<boolean> =>
   new Promise<boolean>((resolve) => {
@@ -182,6 +192,65 @@ describe.skipIf(process.platform === 'win32')('E2EWorld teardown ownership', () 
       }
     }, 20_000);
   });
+
+  /**
+   * Teardown callers overlap in practice — an `afterEach` and a `finally`, or a cleanup racing
+   * a timed-out case. The second one must join the shutdown in flight; returning early would
+   * delete the state directory while Telegram teardown and the listener are still live.
+   */
+  it('makes a second teardown caller wait for the shutdown, not walk past it', async () => {
+    let destroyed = false;
+    const token = mintEndpointToken();
+    const world = await E2EWorld.create('tmcp-world-g-');
+    const mcp = new Client({ name: 'fixture-test', version: '0.0.0' });
+    try {
+      await world.seal({
+        config: {
+          version: 1,
+          endpoints: [
+            {
+              name: 'worker',
+              session: 'acct',
+              scope: { chats: [String(SCOPED_ID)], folders: [] },
+              verbs: ['read'],
+              tokenHash: hashEndpointToken(token),
+            },
+          ],
+        },
+        sessionRefs: ['acct'],
+        pin: PIN,
+      });
+      const slow = new (class extends FakeTelegramClient {
+        public override async destroy(): Promise<void> {
+          await new Promise((resolve) => setTimeout(resolve, 200));
+          destroyed = true;
+        }
+      })(SCOPED_ID);
+      await world.startDaemon({
+        clientFactory: () => slow as unknown as TelegramClient,
+      });
+      await world.unlock(PIN);
+      await mcp.connect(new SocketClientTransport(world.address(), { v: 1, token }));
+      // Builds the account stack, so shutdown has a client to take its time over.
+      expect(
+        (await mcp.callTool({ name: 'list_dialogs', arguments: {} })).isError,
+      ).not.toBe(true);
+      await mcp.close();
+
+      const stopping = world.stopDaemon();
+      // What the second caller could see the moment it returned.
+      const disposing = world.dispose().then(() => destroyed);
+
+      const [, destroyedWhenDisposeReturned] = await Promise.all([stopping, disposing]);
+
+      expect(destroyedWhenDisposeReturned).toBe(true);
+      expect(world.exitCodes()).toEqual([0]);
+      expect(existsSync(world.dir)).toBe(false);
+    } finally {
+      await mcp.close().catch(() => undefined);
+      await world.dispose().catch(() => undefined);
+    }
+  }, 30_000);
 
   it('a disposed world leaves no signal handler of its own behind', async () => {
     const before =

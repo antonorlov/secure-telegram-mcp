@@ -38,8 +38,13 @@ export interface StartInput {
 export class E2EWorld {
   private readonly operators: OperatorClient[] = [];
   private harness: DaemonHarness | undefined;
-  // One disposal, shared by every caller — an `afterEach` and a `finally` often race.
+  // Daemons this world already stopped: a restart case still needs their log and exit code.
+  private readonly retired: DaemonHarness[] = [];
+  // One disposal and one shutdown, shared by every caller — an `afterEach` and a `finally`
+  // often race, and a fixture that lets the second caller past a draining daemon deletes the
+  // state directory out from under it.
   private disposing: Promise<void> | undefined;
+  private stopping: Promise<void> | undefined;
 
   private constructor(
     public readonly dir: string,
@@ -121,14 +126,40 @@ export class E2EWorld {
     return operator;
   }
 
-  // The env a spawned CLI inherits: PATH plus what the case sets, never the ambient TELEGRAM_*.
+  /**
+   * The env a spawned CLI inherits: PATH plus what the case sets, never the ambient TELEGRAM_*.
+   * Every path is explicit AND `HOME` points into the world, so a child that falls back to a
+   * default path lands here rather than in the operator's real state directory.
+   */
   public childEnv(extra: Readonly<Record<string, string>>): Record<string, string> {
     return {
       PATH: process.env['PATH'] ?? '',
+      HOME: this.dir,
       TELEGRAM_MCP_SESSION_DIR: this.sessionDir,
       TELEGRAM_MCP_CONFIG: this.configPath,
+      TELEGRAM_MCP_AUDIT_LOG: this.auditPath,
+      TELEGRAM_MCP_MEDIA_DIR: this.mediaDir,
       ...extra,
     };
+  }
+
+  /**
+   * Stops the daemon but keeps every sealed byte on disk, so a case can start a new one over
+   * the same state — the only way to tell a live cache from what actually persisted.
+   */
+  public async stopDaemon(): Promise<void> {
+    const harness = this.harness;
+    if (harness === undefined) {
+      // A shutdown already owns this daemon: join it instead of racing ahead of the drain.
+      await this.stopping;
+      return;
+    }
+    this.harness = undefined;
+    this.retired.push(harness);
+    for (const operator of this.operators) operator.close();
+    this.operators.length = 0;
+    this.stopping = harness.stop();
+    await this.stopping;
   }
 
   /**
@@ -141,29 +172,33 @@ export class E2EWorld {
   }
 
   private async runDispose(): Promise<void> {
-    for (const operator of this.operators) operator.close();
-    this.operators.length = 0;
     let failure: Error | undefined;
     try {
-      // Kept after disposal: a case still reads its exit code and log to assert the shutdown.
-      await this.harness?.stop();
+      // Performs the shutdown or joins one in flight; the directory goes only after it ends.
+      await this.stopDaemon();
     } catch (error) {
       failure = error instanceof Error ? error : new Error(JSON.stringify(error));
     }
+    for (const operator of this.operators) operator.close();
+    this.operators.length = 0;
     await rm(this.dir, { recursive: true, force: true });
     if (failure !== undefined) throw failure;
   }
 
+  // The live daemon's, or the last one this world stopped.
   public exitCodes(): readonly number[] {
-    return this.harness?.exitCodes() ?? [];
+    return (this.harness ?? this.retired[this.retired.length - 1])?.exitCodes() ?? [];
   }
 
   public ownedHandlerCount(): number {
     return this.harness?.ownedHandlerCount() ?? 0;
   }
 
+  // Every daemon this world ran, so a restart case still scans what the first one logged.
   public daemonLog(): string {
-    return (this.harness?.logLines() ?? []).join('\n');
+    return [...this.retired, ...(this.harness !== undefined ? [this.harness] : [])]
+      .flatMap((harness) => harness.logLines())
+      .join('\n');
   }
 
   // Sweeps the whole world directory plus the given transcripts; the daemon log is always in.
