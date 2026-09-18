@@ -157,6 +157,29 @@ describe.skipIf(process.platform === 'win32')('cli unlock channels', () => {
     expect(await applied()).toBe(false);
   }, 60_000);
 
+  it('keeps the PIN to the file it was given, and out of everything the apply wrote or said', async () => {
+    const path = await fileWith('pin.txt', PIN);
+
+    const { stdout, stderr } = await apply({ [PASS_FILE]: path });
+    expect(await applied()).toBe(true);
+
+    /**
+     * The file is the channel, so the secret lives there by contract — and nowhere else: not in
+     * the config, not in a blob, not in the daemon log, and not in what the CLI printed. The
+     * last one matters most: a terminal is the surface an operator is most likely to paste.
+     */
+    const inspected = await world.assertNoLeaks(
+      [
+        { label: 'the PIN', value: PIN, allowedPaths: ['pin.txt'] },
+        { label: 'the endpoint key', value: token },
+      ],
+      { "the CLI's stdout": stdout, "the CLI's stderr": stderr },
+    );
+    expect(inspected).toBeGreaterThan(2);
+    // The streams really were captured; scanning empty strings would prove nothing.
+    expect(`${stdout}${stderr}`.length).toBeGreaterThan(0);
+  }, 60_000);
+
   it('accepts a file written the way an editor or `echo` leaves it', async () => {
     const path = await fileWith('pin-lf.txt', `${PIN}\n`);
 

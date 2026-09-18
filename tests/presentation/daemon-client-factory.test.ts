@@ -34,12 +34,15 @@ describe.skipIf(process.platform === 'win32')(
     let clients: Map<string, FakeTelegramClient>;
     let factoryCalls: string[];
     let openClients: Client[];
+    // Makes the next client construction fail, the way a first dial to Telegram can.
+    let failNextOpen: boolean;
     guardProcessResources();
 
     beforeEach(async () => {
       clients = new Map();
       factoryCalls = [];
       openClients = [];
+      failNextOpen = false;
       world = await E2EWorld.create('tmcp-factory-');
       await world.seal({
         config: {
@@ -55,6 +58,10 @@ describe.skipIf(process.platform === 'win32')(
       await world.startDaemon({
         clientFactory: (sessionRef: string) => {
           factoryCalls.push(sessionRef);
+          if (failNextOpen) {
+            failNextOpen = false;
+            throw new Error('synthetic dial failure');
+          }
           const fake = new FakeTelegramClient(SCOPED_ID);
           clients.set(sessionRef, fake);
           return fake as unknown as TelegramClient;
@@ -103,6 +110,42 @@ describe.skipIf(process.platform === 'win32')(
 
       expect([...factoryCalls].sort()).toEqual(['acct-a', 'acct-b']);
       expect(clients.get('acct-a')).not.toBe(clients.get('acct-b'));
+    }, 20_000);
+
+    it('does not cache a failed account open: the next call dials again', async () => {
+      await world.unlock(PIN);
+      const mcp = await openMcp(tokenA);
+      failNextOpen = true;
+
+      const failed = await mcp.callTool({ name: 'list_dialogs', arguments: {} });
+
+      expect(failed.isError).toBe(true);
+      expect(JSON.stringify(failed.content)).toContain('GATEWAY_UNAVAILABLE');
+      expect(clients.has('acct-a')).toBe(false);
+
+      // A broken first dial must not become a permanent state for the account.
+      const recovered = await mcp.callTool({ name: 'list_dialogs', arguments: {} });
+
+      expect(recovered.isError).not.toBe(true);
+      expect(factoryCalls).toEqual(['acct-a', 'acct-a']);
+      expect(clients.get('acct-a')?.connectCalls).toBe(1);
+    }, 20_000);
+
+    it('leaves the other account answering when one is removed under live clients', async () => {
+      const operator: OperatorClient = await world.unlock(PIN);
+      const a = await openMcp(tokenA);
+      const b = await openMcp(tokenB);
+      expect((await a.callTool({ name: 'list_dialogs', arguments: {} })).isError).not.toBe(true);
+      expect((await b.callTool({ name: 'list_dialogs', arguments: {} })).isError).not.toBe(true);
+
+      expect((await operator.removeAccount('acct-a')).ok).toBe(true);
+
+      const orphaned = await a.callTool({ name: 'list_dialogs', arguments: {} });
+      expect(orphaned.isError).toBe(true);
+      // The neighbour is asked to do real work, not merely observed to be undestroyed.
+      const neighbour = await b.callTool({ name: 'list_dialogs', arguments: {} });
+      expect(neighbour.isError).not.toBe(true);
+      expect(JSON.stringify(neighbour.structuredContent)).toContain(String(SCOPED_ID));
     }, 20_000);
 
     it('retiring one account destroys only that account client', async () => {

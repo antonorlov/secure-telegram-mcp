@@ -211,6 +211,58 @@ describe.skipIf(process.platform === 'win32')('multi-agent topology', () => {
     await expect(openAgent(tokens.beta)).rejects.toThrow();
   }, 20_000);
 
+  /**
+   * The replay cache lives on the scoped binding, so it de-duplicates a retry by the SAME agent
+   * and nothing else. Two agents that happen to choose the same key are two different senders,
+   * and swallowing one of their messages would be worse than sending twice.
+   */
+  describe('an idempotency key belongs to one binding', () => {
+    const sendWithKey = (
+      agent: Client,
+      chat: number,
+      text: string,
+      idempotencyKey: string,
+    ): ReturnType<Client['callTool']> =>
+      agent.callTool({
+        name: 'send_message',
+        arguments: {
+          peer: { kind: 'id', value: String(chat) },
+          text,
+          idempotencyKey,
+        },
+      });
+
+    it('replays the first result for a repeat from the same agent, without sending twice', async () => {
+      await world.unlock(PIN);
+      const alpha = await openAgent(tokens.alpha);
+
+      const first = await sendWithKey(alpha, ALPHA_CHAT, 'once', 'retry-key-1');
+      const second = await sendWithKey(alpha, ALPHA_CHAT, 'once', 'retry-key-1');
+
+      expect(first.isError).not.toBe(true);
+      expect(second.isError).not.toBe(true);
+      expect(second.structuredContent).toEqual(first.structuredContent);
+      expect(clients.get('main')?.sent.map((m) => m.text)).toEqual(['once']);
+    }, 20_000);
+
+    it('does not let one agent\'s key swallow another agent\'s message', async () => {
+      await world.unlock(PIN);
+      const alpha = await openAgent(tokens.alpha);
+      const beta = await openAgent(tokens.beta);
+
+      const mine = await sendWithKey(alpha, ALPHA_CHAT, 'from alpha', 'shared-key');
+      const theirs = await sendWithKey(beta, BETA_CHAT, 'from beta', 'shared-key');
+
+      expect(mine.isError).not.toBe(true);
+      expect(theirs.isError).not.toBe(true);
+      // Same key text, same account, different bindings: both messages went out.
+      expect(clients.get('main')?.sent.map((m) => m.text)).toEqual([
+        'from alpha',
+        'from beta',
+      ]);
+    }, 20_000);
+  });
+
   it('a media handle is the minting agent\'s alone — its sibling on the same account cannot redeem it', async () => {
     await world.unlock(PIN);
     await mkdir(world.mediaDir, { recursive: true });

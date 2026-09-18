@@ -12,6 +12,7 @@ import {
 import { FileConfigRepository } from '../../src/infrastructure/config/file-config-repository.js';
 import { SealedPolicyRepository } from '../../src/infrastructure/config/sealed-policy-repository.js';
 import { SessionRef } from '../../src/domain/index.js';
+import type { SessionKeySource } from '../../src/application/index.js';
 import { OperatorClient } from '../../src/presentation/operator/client.js';
 import { CHEAP_KDF } from './socket-mcp-client.js';
 import { DaemonHarness } from './daemon-harness.js';
@@ -28,11 +29,14 @@ export const API_HASH = 'deadbeefcafedeadbeefcafedeadbeef';
 export interface SeedInput {
   readonly config: unknown;
   readonly sessionRefs: readonly string[];
-  readonly pin: string;
+  // A PIN seals a HARDENED store; omitting it seals a SMOOTH, machine-bound one.
+  readonly pin?: string;
 }
 
 export interface StartInput {
   readonly clientFactory?: TelegramClientFactory;
+  // The daemon's view of the environment — the idle window is read from it.
+  readonly env?: Readonly<Record<string, string>>;
 }
 
 export class E2EWorld {
@@ -70,7 +74,10 @@ export class E2EWorld {
     await writeFile(this.configPath, JSON.stringify(input.config));
     const store = new EncryptedFileSessionStore({
       directory: this.sessionDir,
-      keySource: { kind: 'passphrase', passphrase: input.pin },
+      keySource:
+        input.pin === undefined
+          ? { kind: 'machine' }
+          : { kind: 'passphrase', passphrase: input.pin },
       kdf: CHEAP_KDF,
     });
     for (const ref of input.sessionRefs) {
@@ -89,6 +96,9 @@ export class E2EWorld {
   }
 
   public async startDaemon(input: StartInput = {}): Promise<void> {
+    // Starting over an existing daemon is a RESTART: the previous one is stopped and its
+    // signal handlers released first, even when it already exited on its own.
+    await this.stopDaemon();
     const parser = new FileConfigRepository({ filePath: this.configPath });
     this.harness = await DaemonHarness.start({
       makeConfigRepository: (store) =>
@@ -102,6 +112,7 @@ export class E2EWorld {
       ...(input.clientFactory !== undefined
         ? { clientFactory: input.clientFactory }
         : {}),
+      ...(input.env !== undefined ? { env: input.env } : {}),
     });
   }
 
@@ -110,7 +121,22 @@ export class E2EWorld {
   }
 
   // Authenticates the operator plane, which is what opens the gate on a hardened store.
-  public async unlock(pin: string): Promise<OperatorClient> {
+  public unlock(pin: string): Promise<OperatorClient> {
+    return this.unlockWith({ kind: 'passphrase', passphrase: pin });
+  }
+
+  // The same, for a keyfile or an explicit machine source.
+  public async unlockWith(source: SessionKeySource): Promise<OperatorClient> {
+    const operator = await this.operator();
+    const authenticated = await operator.authenticate(source);
+    if (!authenticated.ok) {
+      throw new Error(`operator authentication failed: ${authenticated.error}`);
+    }
+    return operator;
+  }
+
+  // A connected but UNAUTHENTICATED operator client, for cases about authorization itself.
+  public async operator(): Promise<OperatorClient> {
     const operator = new OperatorClient({
       sessionDir: this.sessionDir,
       daemonCommand: { execPath: process.execPath, args: ['-e', ''] },
@@ -118,11 +144,6 @@ export class E2EWorld {
     this.operators.push(operator);
     const connected = await operator.connect();
     if (!connected.ok) throw new Error('operator connect failed');
-    const authenticated = await operator.authenticate({
-      kind: 'passphrase',
-      passphrase: pin,
-    });
-    if (!authenticated.ok) throw new Error('operator authentication failed');
     return operator;
   }
 

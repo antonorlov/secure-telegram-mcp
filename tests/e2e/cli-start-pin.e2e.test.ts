@@ -16,6 +16,10 @@ import { guardProcessResources } from '../_support/resource-guards.js';
 import { spawnPty, type PtySession } from '../_support/pty.js';
 
 const PIN = 'correct-horse-battery';
+// Composed vs decomposed: the same text to a human, different bytes, and `promptPin`
+// normalises to NFC before it ever reaches the store.
+const UNICODE_PIN = 'pa\u00DFwort-caf\u00E9';
+const DECOMPOSED_PIN = 'pa\u00DFwort-cafe\u0301';
 const SCOPED_ID = 100;
 const CLI = join(process.cwd(), 'dist', 'presentation', 'cli', 'main.js');
 const ENTER = '\r';
@@ -59,6 +63,30 @@ describe.skipIf(process.platform === 'win32')('cli start — PIN unlock', () => 
     mcp = undefined;
     await world.dispose();
   });
+
+  const sealWith = async (pin: string): Promise<void> => {
+    await world.dispose();
+    world = await E2EWorld.create('tmcp-start-');
+    await world.seal({
+      config: {
+        version: 1,
+        endpoints: [
+          {
+            name: 'worker',
+            session: 'acct',
+            scope: { chats: [String(SCOPED_ID)], folders: [] },
+            verbs: ['read'],
+            tokenHash: hashEndpointToken(token),
+          },
+        ],
+      },
+      sessionRefs: ['acct'],
+      pin,
+    });
+    await world.startDaemon({
+      clientFactory: () => fake as unknown as TelegramClient,
+    });
+  };
 
   const startCli = (): PtySession => {
     const session = spawnPty({
@@ -144,6 +172,44 @@ describe.skipIf(process.platform === 'win32')('cli start — PIN unlock', () => 
     cursor = await session.waitFor(/PIN: /, { from: cursor });
     session.type(`${PIN}${ENTER}`);
     await session.waitFor(/unlocked and running/i, { from: cursor });
+
+    expect(await session.waitForExit(20_000)).toBe(0);
+    expect(await readThroughSocket()).toBe(true);
+  }, 60_000);
+
+  it('ends the attempt on Ctrl-C without unlocking anything', async () => {
+    const session = startCli();
+    await session.waitFor(/PIN: /);
+
+    session.type('\u0003');
+
+    expect(await session.waitForExit(20_000)).not.toBe(0);
+    expect(session.snapshot()).not.toContain(PIN);
+    // Cancelling is not unlocking: the store is exactly as closed as it was.
+    expect(await readThroughSocket()).toBe(false);
+  }, 60_000);
+
+  it('lets backspace correct a mistyped PIN instead of submitting it', async () => {
+    const session = startCli();
+    await session.waitFor(/PIN: /);
+
+    // Three stray characters, then three rubouts, then the real secret.
+    session.type('xyz');
+    await session.waitFor(/\*\*\*/);
+    session.type('\u007f\u007f\u007f');
+    session.type(`${PIN}${ENTER}`);
+
+    expect(await session.waitForExit(20_000)).toBe(0);
+    expect(await readThroughSocket()).toBe(true);
+  }, 60_000);
+
+  it('accepts a decomposed Unicode PIN for a store sealed with the composed one', async () => {
+    await sealWith(UNICODE_PIN);
+    const session = startCli();
+    await session.waitFor(/PIN: /);
+
+    // What a different keyboard or IME would produce for the same word.
+    session.type(`${DECOMPOSED_PIN}${ENTER}`);
 
     expect(await session.waitForExit(20_000)).toBe(0);
     expect(await readThroughSocket()).toBe(true);
