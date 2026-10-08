@@ -9,6 +9,7 @@ import type {
   EndpointExecutionContext,
 } from '../../application/index.js';
 import type { Result } from '../../shared/index.js';
+import { PACKAGE_VERSION } from '../../infrastructure/index.js';
 import { ToolRegistry, type AnyToolDefinition } from './registry.js';
 
 export interface BuildEndpointServerInput {
@@ -31,7 +32,7 @@ export const buildEndpointServer = (
   input: BuildEndpointServerInput,
 ): BuiltEndpointServer => {
   const server = new McpServer(
-    { name: 'secure-telegram-mcp', version: '0.1.0' },
+    { name: 'secure-telegram-mcp', version: PACKAGE_VERSION },
     { capabilities: { tools: {} } },
   );
   const registry = new ToolRegistry();

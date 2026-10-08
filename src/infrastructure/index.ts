@@ -45,4 +45,4 @@ export {
   isSocketFile,
   socketDirRefusal,
 } from './daemon-address.js';
-
+export { PACKAGE_VERSION } from './package-info.js';
