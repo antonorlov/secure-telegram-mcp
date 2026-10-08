@@ -327,7 +327,8 @@ export interface DaemonOptions {
   readonly clientFactory?: TelegramClientFactory;
 }
 
-const DEFAULT_QUOTA = {
+// Exported so the breaker-reachability invariant can be asserted against what ships.
+export const DEFAULT_QUOTA = {
   messagesPerMin: 20,
   forwardsPerMin: 10,
   searchesPerMin: 60,

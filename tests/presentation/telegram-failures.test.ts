@@ -143,37 +143,34 @@ describe.skipIf(process.platform === 'win32')('Telegram failures and the anti-ba
   });
 
   /**
-   * The quota is per bucket and per account. Note what is NOT here: the circuit breaker.
-   * It counts refusals whose back-off is at least `longWaitSeconds` (10), and under the
-   * shipped constants no refusal can reach that — the worst single back-off is 3s for
-   * messages (capacity 20, 1 unit), 6s for forwards (capacity 10, 1 unit) and 8s for searches
-   * (capacity 60, at most `MAX_SEARCH_FANOUT_CALLS` = 8 units). So an exhausted bucket refuses
-   * that bucket and nothing else. Asserting a frozen account here would be asserting a product
-   * change; this pins today's behaviour instead.
+   * The breaker counts this account's OWN long back-offs, not Telegram's flood waits. Once it
+   * trips, every quota-bearing operation on that account is refused for the cooldown: the
+   * account stops talking altogether, not only in the bucket it exhausted. That is the point for
+   * a Telegram account, where the cost of pushing on is a limited or banned number.
    */
-  it('refuses the exhausted bucket only, leaving the account and its neighbour working', async () => {
+  it('freezes the whole account once its own back-offs trip the breaker, and only that account', async () => {
     const busy = await connect(busyToken);
     const calm = await connect(calmToken);
 
+    // Drain the search budget, then keep asking: every refusal past empty is a strike.
     let refusals = 0;
-    for (let attempt = 0; attempt < 12 && refusals < 3; attempt += 1) {
+    for (let attempt = 0; attempt < 20 && refusals < 3; attempt += 1) {
       const result = await search(busy);
       if (result.isError === true) {
-        const text = JSON.stringify(result.content);
-        expect(text).toContain('QUOTA_EXCEEDED');
-        // The hint travels as JSON inside the text block, so the escapes come off first.
-        const hint = /retryAfterSeconds.:(\d+)/.exec(text.replace(/\\/g, ''))?.[1];
-        expect(Number(hint)).toBeGreaterThan(0);
-        expect(Number(hint)).toBeLessThan(10);
+        expect(JSON.stringify(result.content)).toContain('QUOTA_EXCEEDED');
         refusals += 1;
       }
     }
     expect(refusals, 'the search budget never ran out').toBe(3);
 
-    // A different bucket on the same account is untouched by the exhausted one.
-    expect((await send(busy, 'still allowed')).isError).not.toBe(true);
-    expect(busyClient().sent.map((m) => m.text)).toEqual(['still allowed']);
-    // And the other account never paid for its neighbour's appetite.
+    // A different bucket on the same account, well inside its own budget — and still refused,
+    // by the breaker rather than by the bucket.
+    const frozen = await send(busy, 'blocked by the breaker');
+    expect(frozen.isError).toBe(true);
+    expect(JSON.stringify(frozen.content)).toContain('circuit breaker');
+    expect(busyClient().sent).toEqual([]);
+
+    // The other account never asked for anything and is not paying for it.
     expect((await send(calm, 'still fine')).isError).not.toBe(true);
   }, 30_000);
 });

@@ -48,6 +48,19 @@ export class NotRegularFileError extends Error {
 }
 
 /**
+ * Thrown when a file holding a secret is readable by anyone but its owner. Carries the modes,
+ * never the path's contents.
+ */
+export class TooPermissiveFileError extends Error {
+  public constructor(mode: number) {
+    super(
+      `file mode is ${mode.toString(8).padStart(4, '0')}; a secret file must be owner-only (0600)`,
+    );
+    this.name = 'TooPermissiveFileError';
+  }
+}
+
+/**
  * Read one regular file through its already-open handle and enforce `maxBytes`
  * before allocation. A concurrent in-place size change fails closed; application
  * writers use atomic rename, so legitimate reads always see a stable inode.
@@ -55,6 +68,12 @@ export class NotRegularFileError extends Error {
 export const readRegularFileBounded = async (
   filePath: string,
   maxBytes: number,
+  /**
+   * Refuse a file any group or other user can read. Windows has no POSIX mode bits, so the
+   * check is skipped there — `SECURITY.md` already declares Windows unsupported for sensitive
+   * deployments.
+   */
+  options: { readonly requireOwnerOnly?: boolean } = {},
 ): Promise<Buffer> => {
   // O_NONBLOCK prevents a FIFO path from hanging before fstat can reject it.
   // It has no behavioral effect for ordinary regular files.
@@ -68,6 +87,13 @@ export const readRegularFileBounded = async (
   try {
     const stats = await handle.stat();
     if (!stats.isFile()) throw new NotRegularFileError();
+    if (
+      options.requireOwnerOnly === true &&
+      process.platform !== 'win32' &&
+      (stats.mode & 0o077) !== 0
+    ) {
+      throw new TooPermissiveFileError(stats.mode & 0o777);
+    }
     if (stats.size > maxBytes) {
       throw new FileTooLargeError(stats.size, maxBytes);
     }

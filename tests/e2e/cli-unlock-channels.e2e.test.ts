@@ -8,7 +8,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import type { TelegramClient } from 'telegram';
@@ -119,9 +119,11 @@ describe.skipIf(process.platform === 'win32')('cli unlock channels', () => {
     return text;
   };
 
+  // Written 0600, the way `docs/USAGE.md` tells an operator to create it.
   const fileWith = async (name: string, contents: string): Promise<string> => {
     const path = join(world.dir, name);
-    await writeFile(path, contents);
+    await writeFile(path, contents, { mode: 0o600 });
+    await chmod(path, 0o600);
     return path;
   };
 
@@ -210,6 +212,24 @@ describe.skipIf(process.platform === 'win32')('cli unlock channels', () => {
       expect(text).toContain(PASS_FILE);
       expect(text).toContain('could not read');
       expect(await applied()).toBe(false);
+    }, 60_000);
+
+    it('refuses a PIN file that anyone but its owner can read', async () => {
+      const path = await fileWith('loose.txt', PIN);
+      await chmod(path, 0o644);
+
+      const text = await applyFails({ [PASS_FILE]: path, [PASS]: PIN });
+
+      // `docs/USAGE.md` calls this channel "a regular 0600 file"; a world-readable PIN defeats
+      // the point of having one, so it is refused rather than quietly used.
+      expect(text).toContain('owner-only');
+      expect(text).toContain('0644');
+      expect(await applied()).toBe(false);
+
+      // And the same file, tightened, works — the refusal is about the mode, nothing else.
+      await chmod(path, 0o600);
+      await apply({ [PASS_FILE]: path });
+      expect(await applied()).toBe(true);
     }, 60_000);
 
     it('refuses a directory in place of a file', async () => {

@@ -80,7 +80,9 @@ const readPassphraseFile = async (
   let bytes: Buffer | undefined;
   let contents: string;
   try {
-    bytes = await readRegularFileBounded(filePath, MAX_PASSPHRASE_FILE_BYTES);
+    bytes = await readRegularFileBounded(filePath, MAX_PASSPHRASE_FILE_BYTES, {
+      requireOwnerOnly: true,
+    });
     contents = bytes.toString('utf8');
   } catch (error: unknown) {
     const reason = error instanceof Error ? error.message : String(error);

@@ -44,9 +44,17 @@ export interface CircuitBreakerOptions {
   readonly cooldownMs: number;
 }
 
-// Conservative defaults — sustained saturation, not a single hiccup, trips it.
+/**
+ * Conservative defaults — sustained saturation, not a single hiccup, trips it.
+ *
+ * `longWaitSeconds` MUST stay within reach of the shipped quota, or the breaker is dead code:
+ * the worst back-off a single request can produce is `ceil(units / capacity * 60)` seconds, so
+ * with the daemon's defaults it is 3s for messages (1 unit of 20), 6s for forwards (1 of 10)
+ * and 8s for searches (at most `MAX_SEARCH_FANOUT_CALLS` = 8 of 60). A threshold above 8 can
+ * never be met. `tests/infrastructure/breaker-reachability.test.ts` holds this invariant.
+ */
 export const DEFAULT_CIRCUIT_BREAKER: CircuitBreakerOptions = Object.freeze({
-  longWaitSeconds: 10,
+  longWaitSeconds: 3,
   threshold: 3,
   windowMs: MINUTE_MS,
   cooldownMs: MINUTE_MS,

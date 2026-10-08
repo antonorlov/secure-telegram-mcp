@@ -86,7 +86,8 @@ Enter the PIN when prompted. The unlocked service remains available until it sto
 or reaches `TELEGRAM_MCP_IDLE_HOURS` (12 hours by default).
 
 For a headless operator, point `TELEGRAM_MCP_SESSION_PASSPHRASE_FILE` to a regular
-0600 file containing the PIN. This is an automation option, not the Quickstart.
+0600 file containing the PIN (`chmod 600 <file>`). A file that group or other users can
+read is refused, not used. This is an automation option, not the Quickstart.
 The inline passphrase variable exists for controlled secret-manager environments,
 but a file-backed secret avoids putting the PIN directly in process environment
 configuration.
