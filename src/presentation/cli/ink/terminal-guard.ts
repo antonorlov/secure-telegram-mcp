@@ -3,10 +3,10 @@
  * restored: on normal return, on a thrown error, and on Ctrl-C / SIGTERM. Without this, a
  * crash mid-render would leave the user in the alt-screen with a hidden cursor.
  *
- * It enters the alt-screen + hides the cursor before the body, and on the way out shows the
- * cursor + leaves the alt-screen — idempotently, so the `finally` path and a signal handler
- * can both fire without double-emitting. The signal handler restores, de-registers itself,
- * and exits `128 + signo`.
+ * It enters the alt-screen, homes + hides the cursor before the body, and on the way out shows
+ * the cursor + leaves the alt-screen — idempotently, so the `finally` path and a signal
+ * handler can both fire without double-emitting. The signal handler restores, de-registers
+ * itself, and exits `128 + signo`.
  *
  * The side-effects are injected through a tiny `TerminalIo` port so the guarantees are
  * unit-tested with a fake — no real TTY or process signals needed. Non-TTY runs (CI / piped)
@@ -18,6 +18,8 @@ const ALT_ENTER = '[?1049h';
 const ALT_LEAVE = '[?1049l';
 const CURSOR_HIDE = '[?25l';
 const CURSOR_SHOW = '[?25h';
+// `?1049h` keeps the cursor on the row the shell left it, and Ink draws from the cursor.
+const CURSOR_HOME = '[H';
 
 export type GuardSignal = 'SIGINT' | 'SIGTERM';
 
@@ -113,7 +115,7 @@ export class AltScreenTerminalGuard {
       this.io.on(signal, handler);
     }
 
-    this.io.write(`${ALT_ENTER}${CURSOR_HIDE}`);
+    this.io.write(`${ALT_ENTER}${CURSOR_HOME}${CURSOR_HIDE}`);
     try {
       return await body();
     } finally {

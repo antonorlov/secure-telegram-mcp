@@ -1,7 +1,7 @@
 /**
  * Terminal guard — the abort+restore invariant. With an injected fake `TerminalIo`
  * (no real TTY/signals) we pin:
- *   - enter alt-screen + hide cursor before the body; leave + show after,
+ *   - enter alt-screen at its top-left + hide cursor before the body; leave + show after,
  *   - restore even when the body throws,
  *   - a SIGINT handler restores ONCE (idempotent), de-registers, and exits 130,
  *   - non-TTY runs skip the alt-screen entirely (nothing to restore).
@@ -71,6 +71,17 @@ describe('AltScreenTerminalGuard', () => {
     expect(joined(h)).toContain('1049l'); // left alt-screen
     expect(joined(h)).toContain('25h'); // cursor restored
     expect(allHandlersGone(h)).toBe(true);
+  });
+
+  it('starts the body at the top-left, wherever the shell left the cursor', async () => {
+    const h = makeHarness(true);
+    const guard = new AltScreenTerminalGuard(h.io);
+    await guard.run(() => {
+      // `?1049h` keeps the cursor row and Ink draws from it. Homing before the switch would
+      // move the shell's own cursor instead, so the order is the contract.
+      expect(joined(h)).toContain('\u001b[?1049h\u001b[H');
+      return Promise.resolve();
+    });
   });
 
   it('restores the terminal even when the body throws', async () => {
