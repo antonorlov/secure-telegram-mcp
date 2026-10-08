@@ -1,6 +1,6 @@
 {
   "name": "secure-telegram-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "The secure Telegram MCP server: encrypted sessions, folder-scoped access, read-only by default. Per-endpoint API keys.",
   "type": "module",
   "license": "MIT",
@@ -15,6 +15,7 @@
     "docs/USAGE.md",
     "ARCHITECTURE.md",
     "README.md",
+    "CHANGELOG.md",
     "SECURITY.md",
     "telegram-mcp.config.example.json"
   ],
