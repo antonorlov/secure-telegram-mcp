@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] — 2026-10-08
+
+### Fixed
+
+- `setup` draws its menu from the top of the screen. Started in a terminal that
+  already had output, it began on the row where the shell left the cursor,
+  partway down an otherwise empty screen.
+
 ## [0.3.0] — 2026-10-08
 
 ### Added
