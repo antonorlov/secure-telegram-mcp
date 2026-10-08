@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="188" viewBox="0 80 1200 188" role="img" aria-label="secure-telegram-mcp: all your Telegram accounts, one scoped endpoint per AI client" font-family="ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, Consolas, monospace">
+<g transform="translate(150,166)scale(.72)translate(-128,-128)" color="#fff" fill="none" stroke="currentColor" stroke-width="12" stroke-linejoin="round">
+<path d="M84 44h88a44 44 0 0 1 44 44v54a44 44 0 0 1-44 44h-63l-43.5 27 6.5-28.7A44 44 0 0 1 40 142V88a44 44 0 0 1 44-44ZM102.6 112V95.8a25.4 25.4 0 0 1 50.8 0V112"/>
+<path stroke-width="9" d="M186.5 89.2v25.9a7 7 0 0 1-7 7H165M69.5 89.2v25.9a7 7 0 0 0 7 7H91"/>
+<path fill="currentColor" stroke="none" fill-rule="evenodd" d="M100.5 106h55a11.5 11.5 0 0 1 11.5 11.5v36a11.5 11.5 0 0 1-11.5 11.5h-55a11.5 11.5 0 0 1-11.5-11.5v-36a11.5 11.5 0 0 1 11.5-11.5ZM125 135.4a8.4 8.4 0 1 1 6 0v15.2a3 3 0 0 1-6 0ZM197.5 89.2a11 11 0 1 1-22 0 11 11 0 1 1 22 0ZM80.5 89.2a11 11 0 1 1-22 0 11 11 0 1 1 22 0Z"/>
+</g>
+<text x="320" y="140" font-size="54" font-weight="700" fill="#e6edf3" letter-spacing="-1">secure-telegram-mcp</text>
+<text x="322" y="188" font-size="20" fill="#8ea3b8">All your accounts · one scoped endpoint per AI client</text>
+<text x="322" y="238" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="20" font-weight="600" fill="#6EB4FF">folder-scoped<tspan fill="#44586E" font-weight="400">  ·  </tspan>read-only by default<tspan fill="#44586E" font-weight="400">  ·  </tspan>AES-256-GCM</text>
+</svg>

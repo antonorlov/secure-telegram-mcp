@@ -1,0 +1,10 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "entry": ["src/presentation/cli/main.ts!"],
+  "project": ["src/**/*.{ts,tsx}!"],
+  "ignoreExportsUsedInFile": true,
+  "vitest": {
+    "config": ["vitest.config.ts"],
+    "entry": ["tests/**/*.test.ts"]
+  }
+}

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="secure-telegram-mcp" color="#188BFC" fill="none" stroke="currentColor" stroke-width="12" stroke-linejoin="round">
+<path d="M84 44h88a44 44 0 0 1 44 44v54a44 44 0 0 1-44 44h-63l-43.5 27 6.5-28.7A44 44 0 0 1 40 142V88a44 44 0 0 1 44-44ZM102.6 112V95.8a25.4 25.4 0 0 1 50.8 0V112"/>
+<path stroke-width="9" d="M186.5 89.2v25.9a7 7 0 0 1-7 7H165M69.5 89.2v25.9a7 7 0 0 0 7 7H91"/>
+<path fill="currentColor" stroke="none" fill-rule="evenodd" d="M100.5 106h55a11.5 11.5 0 0 1 11.5 11.5v36a11.5 11.5 0 0 1-11.5 11.5h-55a11.5 11.5 0 0 1-11.5-11.5v-36a11.5 11.5 0 0 1 11.5-11.5ZM125 135.4a8.4 8.4 0 1 1 6 0v15.2a3 3 0 0 1-6 0ZM197.5 89.2a11 11 0 1 1-22 0 11 11 0 1 1 22 0ZM80.5 89.2a11 11 0 1 1-22 0 11 11 0 1 1 22 0Z"/>
+</svg>
