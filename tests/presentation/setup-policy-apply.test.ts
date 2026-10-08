@@ -4,6 +4,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { PACKAGE_VERSION } from '../../src/infrastructure/package-info.js';
 import {
   EncryptedFileSessionStore,
 } from '../../src/infrastructure/index.js';
@@ -74,7 +75,12 @@ describe('setup policy apply', () => {
     status: () =>
       Promise.resolve({
         ok: true,
-        value: { posture: 'hardened', locked: false, hasAccounts: false },
+        value: {
+          posture: 'hardened',
+          locked: false,
+          hasAccounts: false,
+          version: PACKAGE_VERSION,
+        },
       }),
     listAccounts: () =>
       Promise.resolve({ ok: true, value: { accounts: [] } }),

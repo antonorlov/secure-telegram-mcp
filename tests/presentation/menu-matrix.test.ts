@@ -10,8 +10,10 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { PACKAGE_VERSION } from '../../src/infrastructure/package-info.js';
 import type { SessionKeySource } from '../../src/application/index.js';
 import { runSetup, type SetupOptions } from '../../src/presentation/cli/setup.js';
+import { daemonVersionWarning } from '../../src/presentation/cli/daemon-version.js';
 import { runEndpointHub } from '../../src/presentation/cli/endpoint-hub.js';
 import type { EndpointDraft } from '../../src/presentation/cli/endpoint-draft.js';
 import type { OperatorClientPort } from '../../src/presentation/operator/client.js';
@@ -41,6 +43,8 @@ interface OperatorState {
   accounts: readonly { readonly sessionRef: string; readonly label: string }[];
   // False models a credential the daemon rejects: the UI must stay locked.
   authenticates: boolean;
+  // The running daemon's version; the installed package's unless a case says otherwise.
+  version?: string;
 }
 
 const notCalled = (method: string) => (): never => {
@@ -59,6 +63,7 @@ const makeOperator = (state: OperatorState): OperatorClientPort =>
           posture: state.posture,
           locked: state.posture === 'hardened' && !state.authenticates,
           hasAccounts: state.hasAccounts,
+          version: state.version ?? PACKAGE_VERSION,
         },
       }),
     listAccounts: () => Promise.resolve({ ok: true, value: { accounts: state.accounts } }),
@@ -502,5 +507,30 @@ describe('endpoint hub — rows follow the endpoint, not the operator', () => {
     const menu = recorder.at(0);
     expect(menu?.hints[menu.labels.indexOf('API key')]).toBe('tgmcp_abc…2345');
     expectMenu(menu, { mustNotContain: [token] });
+  });
+});
+
+describe('daemon version notice', () => {
+  const smooth = (version?: string): OperatorState => ({
+    posture: 'smooth',
+    hasAccounts: true,
+    accounts: ONE_ACCOUNT,
+    authenticates: true,
+    ...(version !== undefined ? { version } : {}),
+  });
+
+  it('tells the operator once that the running daemon predates this CLI', async () => {
+    // Two passes through the home menu: the notice must not repeat on every redraw.
+    const recorder = await drive(['security', 'back', 'quit'], optionsFor(smooth('0.0.1')));
+
+    // The wording is pinned where it is built; here only that setup shows it, once.
+    const notices = recorder.notices.filter((line) => line.includes('0.0.1'));
+    expect(notices).toEqual([daemonVersionWarning('0.0.1')]);
+  });
+
+  it('says nothing when the daemon runs this version', async () => {
+    const recorder = await drive(['security', 'back', 'quit'], optionsFor(smooth()));
+
+    expect(recorder.notices.filter((line) => line.includes('is running'))).toEqual([]);
   });
 });

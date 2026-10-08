@@ -7,6 +7,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { PACKAGE_VERSION } from '../../src/infrastructure/package-info.js';
 import type { SessionKeySource } from '../../src/application/index.js';
 import { runSetup, type SetupOptions } from '../../src/presentation/cli/setup.js';
 import type { OperatorClientPort } from '../../src/presentation/operator/client.js';
@@ -188,6 +189,7 @@ const makeOperator = (): OperatorClientPort => ({
         posture: 'hardened',
         locked: false,
         hasAccounts: true,
+        version: PACKAGE_VERSION,
       },
     });
   },
@@ -379,7 +381,7 @@ describe.each(['add', 'change', 'remove', 'export'] as const)(
       let posture: 'smooth' | 'hardened' = action === 'add' ? 'smooth' : 'hardened';
       const operator = makeOperator();
       vi.spyOn(operator, 'status').mockImplementation(() =>
-        Promise.resolve({ ok: true, value: { posture, locked: false, hasAccounts: true } }),
+        Promise.resolve({ ok: true, value: { posture, locked: false, hasAccounts: true, version: PACKAGE_VERSION } }),
       );
       const operation = vi.spyOn(operator, methods[action]).mockImplementation((): ReturnType<OperatorClientPort['setPin']> => {
         if (succeeds) posture = action === 'remove' ? 'smooth' : 'hardened';

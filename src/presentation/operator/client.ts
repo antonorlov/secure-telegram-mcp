@@ -4,10 +4,16 @@ import type {
   AccountSnapshotDto,
   SessionKeySource,
 } from '../../application/index.js';
-import { operatorAddress } from '../../infrastructure/daemon-address.js';
+import {
+  daemonAddress,
+  operatorAddress,
+} from '../../infrastructure/daemon-address.js';
 import { err, isErr, ok, type Result } from '../../shared/index.js';
 import {
+  connectRunningDaemon,
+  daemonProcessOwnerPid,
   openDaemonSocket,
+  waitForDaemonExit,
   type DaemonCommand,
 } from '../daemon-socket.js';
 import { BoundedLineFramer } from '../bounded-line-framer.js';
@@ -57,14 +63,29 @@ export class OperatorClient {
       unavailableError: 'Telegram MCP did not start',
     });
     if (isErr(opened)) return opened;
-    const socket = opened.value;
-    this.socket = socket;
-    socket.on('data', (chunk: Buffer) => { this.onData(socket, chunk); });
-    socket.once('close', () => { this.onClose(socket); });
-    socket.once('error', () => {
-      this.onClose(socket, 'operator connection failed');
-    });
+    this.attach(opened.value);
     return ok(undefined);
+  }
+
+  /**
+   * Stop the running daemon and wait until its process is gone, so a `start` right after gets a
+   * fresh one instead of racing the old one's teardown. Never starts a daemon just to stop it.
+   */
+  public async stop(): Promise<Result<'stopped' | 'not-running', string>> {
+    if (this.socket === undefined) {
+      const opened = await connectRunningDaemon(operatorAddress(this.options.sessionDir));
+      if (isErr(opened)) return opened;
+      if (opened.value === undefined) return ok('not-running');
+      this.attach(opened.value);
+    }
+    // Read before the request: once the lease is released a new daemon may already claim it.
+    const pid = await daemonProcessOwnerPid(daemonAddress(this.options.sessionDir));
+    const accepted = await this.request<{ readonly accepted: true }>({ op: 'stop' });
+    if (isErr(accepted)) return accepted;
+    if (pid !== undefined && !(await waitForDaemonExit(pid))) {
+      return err('Telegram MCP is still shutting down');
+    }
+    return ok('stopped');
   }
 
   public status(): Promise<Result<OperatorStatusDto, string>> {
@@ -184,6 +205,15 @@ export class OperatorClient {
     socket.end();
   }
 
+  private attach(socket: Socket): void {
+    this.socket = socket;
+    socket.on('data', (chunk: Buffer) => { this.onData(socket, chunk); });
+    socket.once('close', () => { this.onClose(socket); });
+    socket.once('error', () => {
+      this.onClose(socket, 'operator connection failed');
+    });
+  }
+
   private request<T extends OperatorResult>(
     body: Readonly<Record<string, unknown>> & {
       readonly op: OperatorRequest['op'];
@@ -275,4 +305,5 @@ export class OperatorClient {
   }
 }
 
-export type OperatorClientPort = Pick<OperatorClient, keyof OperatorClient>;
+// What setup drives. Stopping the daemon is a command of its own, never a setup action.
+export type OperatorClientPort = Omit<OperatorClient, 'stop'>;

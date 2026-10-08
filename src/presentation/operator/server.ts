@@ -25,6 +25,8 @@ import { BoundedLineFramer } from '../bounded-line-framer.js';
 export interface OperatorHandlers {
   requiresAuthentication(): Promise<boolean>;
   status(): Promise<OperatorStatusDto>;
+  // Begin the daemon's own graceful shutdown; called once the reply has left the socket.
+  stop(): void;
   listAccounts(): Promise<
     Result<{ readonly accounts: readonly OperatorAccountDto[] }, AppError>
   >;
@@ -190,6 +192,26 @@ export const createOperatorServer = (options: OperatorServerOptions): OperatorSe
           ok: true,
           result: await options.handlers.status(),
         });
+        return;
+      }
+      /**
+       * Unauthenticated like `status`: stopping only ever closes — it zeroizes the key and needs
+       * nothing the same OS user cannot already do with a signal. Shutdown destroys every
+       * operator socket, so the reply is flushed first or the CLI could not tell a stop from a
+       * crash.
+       */
+      if (request.op === 'stop') {
+        await send({ v: 1, id: request.id, ok: true, result: { accepted: true } });
+        await new Promise<void>((resolve) => {
+          // `end` never calls back on a socket the client already dropped; `close` covers it.
+          if (socket.destroyed) {
+            resolve();
+            return;
+          }
+          socket.once('close', () => { resolve(); });
+          socket.end(() => { resolve(); });
+        });
+        options.handlers.stop();
         return;
       }
       if (request.op === 'authenticate') {

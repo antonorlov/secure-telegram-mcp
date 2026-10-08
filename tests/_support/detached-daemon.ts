@@ -4,8 +4,12 @@
  * `DaemonHarness` owns in-process daemons only — so every suite that lets the CLI start one
  * cleans up through here.
  */
+import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+
+import { daemonAddress } from '../../src/infrastructure/daemon-address.js';
 
 export interface DaemonOwner {
   readonly pid: number;
@@ -13,8 +17,9 @@ export interface DaemonOwner {
   readonly token: string;
 }
 
+// The lifetime lease sits next to the daemon socket: the session dir unless its path is too long.
 const ownerPath = (sessionDir: string): string =>
-  join(sessionDir, '.daemon-running', 'owner');
+  join(dirname(daemonAddress(sessionDir)), '.daemon-running', 'owner');
 
 // The live owner recorded for this state directory, or undefined when no worker claimed it.
 export const readDaemonOwner = (sessionDir: string): DaemonOwner | undefined => {
@@ -29,6 +34,13 @@ export const readDaemonOwner = (sessionDir: string): DaemonOwner | undefined => 
     throw new Error(`invalid daemon owner in ${path}: ${raw}`);
   }
   return { pid, token };
+};
+
+// Claims the directory for `pid` the way a daemon does, so a stand-in process can be the owner.
+export const writeDaemonOwner = async (sessionDir: string, pid: number): Promise<void> => {
+  const path = ownerPath(sessionDir);
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+  await writeFile(path, `${String(pid)}:${randomBytes(16).toString('hex')}`, { mode: 0o600 });
 };
 
 export const processIsAlive = (pid: number): boolean => {

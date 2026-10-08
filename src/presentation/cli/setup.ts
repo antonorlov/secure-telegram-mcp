@@ -47,6 +47,7 @@ import {
   type ApiCredentials,
   type CredentialPromptConsole,
 } from './credential-prompter.js';
+import { daemonVersionWarning } from './daemon-version.js';
 import {
   apiKeyNotice,
   endpointDraftFromValidated,
@@ -1400,12 +1401,18 @@ const runMainMenu = async (
   const clearUnlock = (): void => {
     unlockedSource = undefined;
   };
+  let versionChecked = false;
   while (running) {
     const status = await operator.status();
     if (isErr(status)) {
       ui.notify(`Could not read Telegram MCP status: ${status.error}.`);
       process.exitCode = 1;
       break;
+    }
+    if (!versionChecked) {
+      versionChecked = true;
+      const warning = daemonVersionWarning(status.value.version);
+      if (warning !== undefined) ui.notify(warning);
     }
 
     // NOT LOGGED IN — no session file on disk. Only login/quit; drop any unlock.

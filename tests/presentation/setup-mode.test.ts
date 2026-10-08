@@ -7,6 +7,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { PACKAGE_VERSION } from '../../src/infrastructure/package-info.js';
 import type { SessionKeySource } from '../../src/application/index.js';
 import { runSetup, type SetupOptions } from '../../src/presentation/cli/setup.js';
 import type { OperatorClientPort } from '../../src/presentation/operator/client.js';
@@ -263,6 +264,7 @@ const makeOperator = (): OperatorClientPort => {
           posture: H.state.existing ? 'smooth' : 'none',
           locked: false,
           hasAccounts: H.state.existing,
+          version: PACKAGE_VERSION,
         },
       }),
     listAccounts: () =>

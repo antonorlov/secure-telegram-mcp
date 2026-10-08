@@ -63,7 +63,10 @@ import {
   type EndpointRuntime,
   type SessionStack,
 } from './endpoint-stack.js';
-import type { TelegramClientFactory } from '../../infrastructure/index.js';
+import {
+  PACKAGE_VERSION,
+  type TelegramClientFactory,
+} from '../../infrastructure/index.js';
 import { AccountRuntimes } from './account-runtimes.js';
 import { PolicyContexts } from './policy-contexts.js';
 import { BoundedStreamServerTransport } from './bounded-stream-transport.js';
@@ -71,6 +74,7 @@ import { createOperatorServer } from '../operator/server.js';
 import { OperatorLoginSessions } from '../operator/login-sessions.js';
 import {
   acquireDaemonProcessLease,
+  DAEMON_SHUTDOWN_TIMEOUT_MS,
   recoverStaleDaemonSocket,
 } from '../daemon-socket.js';
 
@@ -333,8 +337,6 @@ export const DEFAULT_QUOTA = {
   forwardsPerMin: 10,
   searchesPerMin: 60,
 } as const;
-
-const DEFAULT_SHUTDOWN_TIMEOUT_MS = 15_000;
 
 export const daemon = async (options: DaemonOptions): Promise<void> => {
   const log =
@@ -636,8 +638,11 @@ export const daemon = async (options: DaemonOptions): Promise<void> => {
           posture: operatorPosture,
           locked: !gate.isUnlocked(),
           hasAccounts: refs.value.length > 0,
+          version: PACKAGE_VERSION,
         };
       },
+      // Bound at runtime: the server only accepts requests after `shutdown` is defined.
+      stop: (): void => { shutdown('operator stop'); },
       listAccounts: async () => {
         const refs = await sessions.listRefs();
         if (isErr(refs)) return refs;
@@ -989,7 +994,7 @@ export const daemon = async (options: DaemonOptions): Promise<void> => {
        * still owns the auth key.
        */
       finish(1);
-    }, DEFAULT_SHUTDOWN_TIMEOUT_MS);
+    }, DAEMON_SHUTDOWN_TIMEOUT_MS);
     watchdog.unref();
     void (async (): Promise<void> => {
       // Finish the mutation already admitted before draining Telegram ownership.
@@ -1108,7 +1113,7 @@ export const daemon = async (options: DaemonOptions): Promise<void> => {
   operatorServer.on('error', (error) => {
     log(`operator socket error: ${error.message}`);
   });
-  log(`listening on ${address}`);
+  log(`Telegram MCP ${PACKAGE_VERSION} listening on ${address}`);
   log(`operator control listening on ${operatorSocketAddress}`);
 
   // Idle auto-lock: after `idleMs` with no client activity, the daemon shuts down

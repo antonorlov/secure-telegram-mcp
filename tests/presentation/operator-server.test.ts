@@ -26,7 +26,12 @@ describe.skipIf(process.platform === 'win32')('operator server', () => {
   ): OperatorHandlers => ({
     requiresAuthentication: () => Promise.resolve(hardened),
     status: () =>
-      Promise.resolve({ posture: 'hardened', locked: false, hasAccounts: false }),
+      Promise.resolve({
+        posture: 'hardened',
+        locked: false,
+        hasAccounts: false,
+        version: '1.2.3',
+      }),
     listAccounts: () => Promise.resolve(ok({ accounts: [] })),
     authenticate: (source) =>
       Promise.resolve(
@@ -62,6 +67,7 @@ describe.skipIf(process.platform === 'win32')('operator server', () => {
     removePin: () => Promise.resolve(ok({ changed: true })),
     exportRecovery: (_current, _outputPath) =>
       Promise.resolve(ok({ changed: true as const })),
+    stop: () => undefined,
     ...overrides,
   });
 
@@ -395,6 +401,34 @@ describe.skipIf(process.platform === 'win32')('operator server', () => {
     second.close();
   });
 
+  it('stops without authentication and gets the reply out before the shutdown drops it', async () => {
+    await close();
+    let stops = 0;
+    let stopped!: () => void;
+    const stopCalled = new Promise<void>((resolve) => {
+      stopped = resolve;
+    });
+    server = createOperatorServer({
+      handlers: handlers({
+        stop: () => {
+          stops += 1;
+          // The daemon's shutdown starts by dropping every operator connection.
+          server.closeConnections();
+          stopped();
+        },
+      }),
+    });
+    await listen();
+    const operator = client();
+    expect((await operator.connect()).ok).toBe(true);
+    // Hardened and never authenticated: anything else on this socket is refused.
+    expect((await operator.listAccounts()).ok).toBe(false);
+
+    expect(await operator.stop()).toEqual({ ok: true, value: 'stopped' });
+    await stopCalled;
+    expect(stops).toBe(1);
+  });
+
   it('closes a connection that never sends a valid first frame', async () => {
     await close();
     server = createOperatorServer({
@@ -423,6 +457,7 @@ describe.skipIf(process.platform === 'win32')('operator server', () => {
             posture: 'hardened',
             locked: false,
             hasAccounts: false,
+            version: '1.2.3',
           });
         },
       }),
@@ -470,6 +505,7 @@ describe.skipIf(process.platform === 'win32')('operator server', () => {
             posture: 'hardened',
             locked: false,
             hasAccounts: false,
+            version: '1.2.3',
             padding,
           });
         },

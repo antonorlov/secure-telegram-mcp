@@ -59,12 +59,20 @@ the freshly minted entries are additionally emitted there as one parseable
 ```text
 npx -y secure-telegram-mcp setup    # login, accounts, endpoints, and session security
 npx -y secure-telegram-mcp start    # start, show status, or interactively unlock
+npx -y secure-telegram-mcp stop     # stop the running service
 npx -y secure-telegram-mcp apply    # validate and apply config.json
 npx -y secure-telegram-mcp connect  # stdio shim launched by an MCP client
+npx -y secure-telegram-mcp --version
 ```
 
 `connect` starts or joins the local service and pipes MCP stdio to it. Run it from
 an MCP client configuration rather than as an interactive shell command.
+
+The service runs in the background and keeps the version that started it, so an
+upgraded package takes effect only after `stop` and the next `start`. `start`
+and `setup` show the running version and warn when it differs from the CLI.
+`stop` returns once the service has exited; MCP clients connected at that moment
+lose their connection and need to reconnect the server.
 
 ## Session protection
 
@@ -253,6 +261,9 @@ the image.
   exported; without one, delete the session directory and log in again.
 - **Client cannot connect at all** — check `node -v` is ≥ 20.10, then run
   `npx -y secure-telegram-mcp start` to see the service status.
+- **`start` warns that another version is running** — the service predates the
+  installed package. Run `npx -y secure-telegram-mcp stop`, then `start`, and
+  reconnect your MCP clients.
 
 ## Tool catalogue
 

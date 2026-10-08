@@ -45,6 +45,8 @@ const REMOVAL_CLAIM_RE = new RegExp(
   `^${START_LEASE_OWNER}\\.removing-([1-9]\\d*)-(${LEASE_ID_PATTERN})-([1-9]\\d*)-(${REMOVAL_ID_PATTERN})$`,
 );
 const DEFAULT_START_TIMEOUT_MS = 15_000;
+// The daemon's teardown watchdog: a shutdown still running after this forces its own exit.
+export const DAEMON_SHUTDOWN_TIMEOUT_MS = 15_000;
 
 interface LeaseOwner {
   readonly pid: number;
@@ -442,6 +444,54 @@ const processIsAlive = (pid: number): boolean => {
   }
 };
 
+// The trust-boundary check every daemon connection passes before it is used.
+const verifiedDaemonSocket = async (
+  address: string,
+  socket: Socket,
+): Promise<Result<Socket, string>> => {
+  const refusal = await socketDirRefusal(address);
+  if (refusal !== null) {
+    socket.destroy();
+    return err(refusal);
+  }
+  return ok(socket);
+};
+
+// Connect to a daemon that is already running; `undefined` when none is, and none is started.
+export const connectRunningDaemon = async (
+  address: string,
+): Promise<Result<Socket | undefined, string>> => {
+  const socket = await tryConnect(address);
+  return socket === undefined ? ok(undefined) : verifiedDaemonSocket(address, socket);
+};
+
+// The PID recorded as the owner of this address's process lease, if a daemon claimed it.
+export const daemonProcessOwnerPid = async (
+  address: string,
+): Promise<number | undefined> => {
+  try {
+    const raw = await readFile(
+      join(leaseDirectory(address), PROCESS_LEASE_FILE, START_LEASE_OWNER),
+      'utf8',
+    );
+    return parseLeaseOwner(raw)?.pid;
+  } catch (error) {
+    if (errnoCode(error) === 'ENOENT') return undefined;
+    throw error;
+  }
+};
+
+// True once the daemon process is gone; false if it outlives its own teardown watchdog.
+export const waitForDaemonExit = async (pid: number): Promise<boolean> => {
+  // The watchdog's forced exit itself still needs a moment.
+  const deadline = performance.now() + DAEMON_SHUTDOWN_TIMEOUT_MS + 2_000;
+  while (processIsAlive(pid)) {
+    if (performance.now() >= deadline) return false;
+    await delay(50);
+  }
+  return true;
+};
+
 // Connect to the daemon, starting it once when absent, then verify its trust boundary.
 export const openDaemonSocket = async (options: {
   readonly address: string;
@@ -486,11 +536,5 @@ export const openDaemonSocket = async (options: {
     }
   }
   if (socket === undefined) return err(options.unavailableError);
-
-  const refusal = await socketDirRefusal(options.address);
-  if (refusal !== null) {
-    socket.destroy();
-    return err(refusal);
-  }
-  return ok(socket);
+  return verifiedDaemonSocket(options.address, socket);
 };

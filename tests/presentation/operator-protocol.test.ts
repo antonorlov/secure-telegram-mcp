@@ -22,6 +22,7 @@ const request = (
 
 const VALID_REQUESTS = [
   wire('status'),
+  wire('stop'),
   wire('accounts.list'),
   wire('account.snapshot', { sessionRef: 'main' }),
   wire('login.begin', {
@@ -178,7 +179,7 @@ describe('operator protocol', () => {
 
   it('decodes only exact, bounded response and event shapes', () => {
     const responses = [
-      { v: 1, id: '1', ok: true, result: { posture: 'smooth', locked: false, hasAccounts: true } },
+      { v: 1, id: '1', ok: true, result: { posture: 'smooth', locked: false, hasAccounts: true, version: '1.2.3' } },
       { v: 1, id: '2', ok: true, result: { accounts: [{ sessionRef: 'main', label: 'Jose 🚀' }] } },
       { v: 1, id: '3', ok: true, result: { chats: [], folders: [] } },
       { v: 1, id: '4', ok: true, result: { authenticated: true } },
@@ -211,16 +212,48 @@ describe('operator protocol', () => {
     }
   });
 
+  it('accepts a status only with a plain semver version, since the CLI prints it', () => {
+    const status = (version: unknown): string | undefined =>
+      parseOperatorResponse(JSON.stringify({
+        v: 1,
+        id: '1',
+        ok: true,
+        result: { posture: 'smooth', locked: false, hasAccounts: true, version },
+      }))?.id;
+    // Bounded like every other identifier on this plane: 128 bytes.
+    const atLimit = `1.0.0-${'a'.repeat(122)}`;
+    for (const version of ['0.2.0', '10.20.30', '1.0.0-rc.1', '1.0.0+build.5', atLimit]) {
+      expect(status(version)).toBe('1');
+    }
+    for (const version of [
+      undefined,
+      '',
+      '1.0',
+      'v1.0.0',
+      '1.0.0 ',
+      '\u001b[2J1.0.0',
+      '1.0.0\n',
+      `${atLimit}a`,
+      100,
+    ]) {
+      expect(status(version)).toBeUndefined();
+    }
+  });
+
   it('correlates success payloads with their request operation', () => {
     const changed = { changed: true } as const;
     const status = {
       posture: 'hardened' as const,
       locked: false,
       hasAccounts: true,
+      version: '1.2.3',
     };
     expect(isOperatorResultFor('pin.change', changed)).toBe(true);
     expect(isOperatorResultFor('status', changed)).toBe(false);
     expect(isOperatorResultFor('status', status)).toBe(true);
     expect(isOperatorResultFor('account.remove', status)).toBe(false);
+    expect(isOperatorResultFor('stop', { accepted: true })).toBe(true);
+    expect(isOperatorResultFor('stop', status)).toBe(false);
+    expect(isOperatorResultFor('stop', changed)).toBe(false);
   });
 });

@@ -9,6 +9,7 @@ import {
   hashEndpointToken,
   mintEndpointToken,
 } from '../../src/infrastructure/endpoint-token.js';
+import { PACKAGE_VERSION } from '../../src/infrastructure/package-info.js';
 import { SocketClientTransport } from '../_support/socket-mcp-client.js';
 import { FakeTelegramClient } from '../_support/fake-telegram-client.js';
 import { E2EWorld } from '../_support/e2e-world.js';
@@ -174,6 +175,10 @@ describe.skipIf(process.platform === 'win32')('cli start — PIN unlock', () => 
     await session.waitFor(/unlocked and running/i, { from: cursor });
 
     expect(await session.waitForExit(20_000)).toBe(0);
+    // The version of the daemon it unlocked, not just that it did.
+    expect(session.snapshot()).toContain(
+      `Telegram MCP ${PACKAGE_VERSION} is unlocked and running.`,
+    );
     expect(await readThroughSocket()).toBe(true);
   }, 60_000);
 

@@ -8,11 +8,12 @@
  * every call closed, so no Telegram transport is ever constructed and no account is needed.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { spawn, type ChildProcess } from 'node:child_process';
+import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { connect as netConnect } from 'node:net';
 import { once } from 'node:events';
 import { join } from 'node:path';
+import { promisify } from 'node:util';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
@@ -30,6 +31,7 @@ import {
   waitForExit,
 } from '../_support/detached-daemon.js';
 
+const run = promisify(execFile);
 const PIN = 'correct-horse-battery';
 const SCOPED_ID = 100;
 const CLI = join(process.cwd(), 'dist', 'presentation', 'cli', 'main.js');
@@ -209,6 +211,37 @@ describe.skipIf(process.platform === 'win32')('cli worker lifecycle', () => {
     expect((await second.listTools()).tools.length).toBeGreaterThan(0);
     expect(await callLocked(second)).toContain('SESSION_LOCKED');
   }, 60_000);
+
+  describe('stop', () => {
+    const stop = (): Promise<{ readonly stdout: string; readonly stderr: string }> =>
+      run(process.execPath, [CLI, 'stop'], { env: world.childEnv({}) });
+
+    it('ends a locked worker without a PIN, before it returns, so a fresh one can start', async () => {
+      const first = await connect();
+      const before = await waitForDaemonOwner(world.sessionDir);
+      expect(await callLocked(first)).toContain('SESSION_LOCKED');
+
+      const { stderr } = await stop();
+
+      expect(stderr).toBe('Telegram MCP stopped.\n');
+      // Gone by the time the command returns: a start right after cannot race its teardown.
+      expect(processIsAlive(before.pid)).toBe(false);
+      expect(await isServing()).toBe(false);
+
+      const second = await connect();
+      const after = await waitForDaemonOwner(world.sessionDir);
+      expect(after.pid).not.toBe(before.pid);
+      expect(await callLocked(second)).toContain('SESSION_LOCKED');
+    }, 60_000);
+
+    it('says nothing is running and starts nothing when nothing is', async () => {
+      const { stderr } = await stop();
+
+      expect(stderr).toBe('Telegram MCP is not running.\n');
+      expect(readDaemonOwner(world.sessionDir)).toBeUndefined();
+      expect(await isServing()).toBe(false);
+    }, 60_000);
+  });
 
   describe('a shim is a pipe, and its ends are separate lifetimes', () => {
     it('exits cleanly when its client closes stdin', async () => {

@@ -10,6 +10,9 @@ export const MAX_OPERATOR_FRAME_BYTES =
   MAX_POLICY_PLAINTEXT_BYTES * 2 + 4096;
 const MAX_SECRET_BYTES = 4096;
 const MAX_IDENTIFIER_BYTES = 128;
+// A package.json semver, nothing more: the CLI prints it to the operator's terminal.
+const PACKAGE_VERSION_RE =
+  /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 
 export interface OperatorAccountDto {
   readonly sessionRef: string;
@@ -20,6 +23,8 @@ export interface OperatorStatusDto {
   readonly posture: 'none' | 'smooth' | 'hardened';
   readonly locked: boolean;
   readonly hasAccounts: boolean;
+  // The running daemon's package version, which an upgraded CLI may not match.
+  readonly version: string;
 }
 
 export interface OperatorLoginResult {
@@ -114,6 +119,7 @@ type Request<
 
 export type OperatorRequest =
   | Request<'status'>
+  | Request<'stop'>
   | Request<'accounts.list'>
   | Request<'authenticate', { source: ProtectedSource }>
   | Request<'policy.apply', { raw: string }>
@@ -180,7 +186,7 @@ export const parseOperatorRequest = (
   }
   switch (request['op']) {
     case 'status':
-      return acceptedRequest(request, hasOnly(request, ['v', 'id', 'op']));
+    case 'stop':
     case 'accounts.list':
       return acceptedRequest(request, hasOnly(request, ['v', 'id', 'op']));
     case 'authenticate': {
@@ -289,6 +295,7 @@ export const parseOperatorRequest = (
 // Exhaustive operation policy: adding a request requires choosing its ordering.
 const OPERATOR_OPERATION_IS_SERIAL = Object.freeze({
   status: false,
+  stop: false,
   'accounts.list': true,
   'account.snapshot': true,
   'login.begin': false,
@@ -425,7 +432,9 @@ const isOperatorResult = (value: unknown): value is OperatorResult => {
       result['posture'] === 'hardened') &&
     typeof result['locked'] === 'boolean' &&
     typeof result['hasAccounts'] === 'boolean' &&
-    hasOnly(result, ['posture', 'locked', 'hasAccounts'])
+    boundedString(result['version'], MAX_IDENTIFIER_BYTES) &&
+    PACKAGE_VERSION_RE.test(result['version']) &&
+    hasOnly(result, ['posture', 'locked', 'hasAccounts', 'version'])
   ) {
     return true;
   }
@@ -486,6 +495,7 @@ export const isOperatorResultFor = (
       return 'chats' in result && 'folders' in result;
     case 'login.begin':
       return 'flowId' in result && 'account' in result;
+    case 'stop':
     case 'login.answer':
     case 'login.cancel':
       return result['accepted'] === true;

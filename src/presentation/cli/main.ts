@@ -14,6 +14,7 @@ import {
   readUtf8Bounded,
 } from '../../infrastructure/bounded-read.js';
 import { ENDPOINT_TOKEN_ENV } from '../../infrastructure/endpoint-token.js';
+import { PACKAGE_VERSION } from '../../infrastructure/package-info.js';
 import type { SessionKeySource } from '../../application/index.js';
 import { isErr, type Result } from '../../shared/index.js';
 import type { DaemonCommand } from '../daemon-socket.js';
@@ -23,14 +24,20 @@ import {
   parseApiHash,
   CREDENTIALS_URL,
 } from './credential-prompter.js';
+import { daemonVersionWarning } from './daemon-version.js';
 
 const USAGE = `npx secure-telegram-mcp <command>
 
 Commands:
   setup    Configure Telegram login, endpoints, and session security
   start    Start Telegram MCP, show its status, or unlock it
+  stop     Stop Telegram MCP; the next start or MCP client connect starts it again
   apply    Validate and apply config.json (PIN-protected installs need an unlock secret)
   connect  Connect an MCP client (starts Telegram MCP automatically)
+
+Options:
+  -h, --help     Show this help
+  -v, --version  Show the version of this CLI
 
 Telegram app credentials (from ${CREDENTIALS_URL}):
   TELEGRAM_API_ID            OPTIONAL. 'setup' PROMPTS for these interactively
@@ -187,6 +194,15 @@ const main = async (argv: readonly string[]): Promise<void> => {
   };
 
   switch (command) {
+    // Answered without touching the daemon: neither may start one as a side effect.
+    case '--version':
+    case '-v':
+      process.stdout.write(`${PACKAGE_VERSION}\n`);
+      return;
+    case '--help':
+    case '-h':
+      process.stdout.write(USAGE);
+      return;
     case 'setup': {
       const { runSetup } = await import('./setup.js');
       /**
@@ -236,6 +252,10 @@ const main = async (argv: readonly string[]): Promise<void> => {
           if (isErr(connected)) throw new Error(connected.error);
           const status = await operator.status();
           if (isErr(status)) throw new Error(status.error);
+          const { version } = status.value;
+          // Before any PIN prompt: the operator may rather switch than unlock the old one.
+          const warning = daemonVersionWarning(version);
+          if (warning !== undefined) process.stderr.write(`Warning: ${warning}\n`);
           if (status.value.posture === 'hardened' && status.value.locked) {
             const { promptPin } = await import('./pin-prompt.js');
             for (let attempt = 1; attempt <= 3; attempt += 1) {
@@ -252,7 +272,9 @@ const main = async (argv: readonly string[]): Promise<void> => {
                 passphrase: pin,
               });
               if (!isErr(authenticated)) {
-                process.stderr.write('Telegram MCP is unlocked and running.\n');
+                process.stderr.write(
+                  `Telegram MCP ${version} is unlocked and running.\n`,
+                );
                 return;
               }
               process.stderr.write('Wrong PIN or temporarily rate-limited.\n');
@@ -263,8 +285,8 @@ const main = async (argv: readonly string[]): Promise<void> => {
           }
           process.stderr.write(
             status.value.posture === 'none'
-              ? 'Telegram MCP is running. Continue with setup.\n'
-              : 'Telegram MCP is running.\n',
+              ? `Telegram MCP ${version} is running. Continue with setup.\n`
+              : `Telegram MCP ${version} is running.\n`,
           );
         } finally {
           operator.close();
@@ -346,8 +368,29 @@ const main = async (argv: readonly string[]): Promise<void> => {
       }
       return;
     }
-    default:
+    case 'stop': {
+      const operator = await operatorClient();
+      try {
+        const stopped = await operator.stop();
+        if (isErr(stopped)) throw new Error(stopped.error);
+        process.stderr.write(
+          stopped.value === 'stopped'
+            ? 'Telegram MCP stopped.\n'
+            : 'Telegram MCP is not running.\n',
+        );
+      } finally {
+        operator.close();
+      }
+      return;
+    }
+    case undefined:
       process.stderr.write(USAGE);
+      process.exitCode = 1;
+      return;
+    default:
+      process.stderr.write(
+        `Unknown command '${command}'. Run 'npx secure-telegram-mcp --help' for usage.\n`,
+      );
       process.exitCode = 1;
       return;
   }
