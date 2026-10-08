@@ -4,6 +4,26 @@ All notable changes to this project are documented in this file. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] — 2026-10-08
+
+### Added
+
+- `stop` stops the running service and returns once it has exited, without
+  asking for the PIN; it never starts one to stop it.
+- `--version` / `-v` prints the CLI version, and `--help` / `-h` prints usage
+  to stdout with exit code 0. Neither starts the service.
+- `start` and `setup` show the version of the running service and warn when it
+  is not the installed one, with the way to switch.
+
+### Changed
+
+- **A service started by 0.2.0 must be stopped by hand once.** It does not
+  understand this CLI's `start` or `stop`. End it, then `start` again:
+  `kill "$(cut -d: -f1 ~/.secure-telegram-mcp/sessions/.daemon-running/owner)"`
+  (adjust the path if `TELEGRAM_MCP_SESSION_DIR` is set).
+- An unknown command names itself and points at `--help` instead of printing the
+  whole usage.
+
 ## [0.2.0] — 2026-10-08
 
 ### Changed
