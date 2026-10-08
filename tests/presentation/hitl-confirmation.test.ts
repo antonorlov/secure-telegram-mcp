@@ -173,9 +173,7 @@ describe.skipIf(process.platform === 'win32')('write confirmation over MCP', () 
 
   /**
    * The model cannot self-approve: a client that cannot show a prompt is refused rather than
-   * waved through. NOTE the payload — `docs/USAGE.md` documents `CONFIRMATION_REQUIRED` here,
-   * while the confirmer turns the SDK's rejection into `GATEWAY_UNAVAILABLE`. This pins what
-   * the code does today; aligning the two is a product decision, not a test fix.
+   * waved through, with the code `docs/USAGE.md` documents for exactly this case.
    */
   it('refuses a client that cannot be asked at all', async () => {
     const { client } = await attach(guarded);
@@ -183,7 +181,7 @@ describe.skipIf(process.platform === 'win32')('write confirmation over MCP', () 
     const result = await sendResult(client, 'unaskable');
 
     expect(result.isError).toBe(true);
-    expect(JSON.stringify(result.content)).toContain('GATEWAY_UNAVAILABLE');
+    expect(JSON.stringify(result.content)).toContain('CONFIRMATION_REQUIRED');
     expect(fake.sent).toEqual([]);
   }, 20_000);
 

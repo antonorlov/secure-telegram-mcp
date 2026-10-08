@@ -54,6 +54,47 @@ describe('buildReviewInput', () => {
     expect(review.matrix[0]).toMatchObject({ bits: { read: true, write: false } });
   });
 
+  /**
+   * Granting write on a chat that is already in scope used to read as "no changes vs. saved
+   * config" — while the very same review demanded the endpoint name for the escalation it was
+   * not listing. A rights change on a chat that stays selected is a change.
+   */
+  it('a chat that stays in scope but gains write is listed as a rights change', () => {
+    const before = withSelection([['9', { read: true, write: false }]]);
+    const after = createPickerState({
+      endpointName: 'ops',
+      rows,
+      selection: new Map<string, AccessBits>([['9', { read: true, write: true }]]),
+    });
+
+    const review = buildReviewInput(after, before);
+
+    expect(review.diff).toEqual(['~ Ops (read → read + write)']);
+    expect(review.hasWritable).toBe(true);
+  });
+
+  it('losing write is listed too, and an untouched chat lists nothing', () => {
+    const narrowed = buildReviewInput(
+      createPickerState({
+        endpointName: 'ops',
+        rows,
+        selection: new Map<string, AccessBits>([['9', { read: true, write: false }]]),
+      }),
+      withSelection([['9', { read: true, write: true }]]),
+    );
+    expect(narrowed.diff).toEqual(['~ Ops (read + write → read)']);
+
+    const untouched = buildReviewInput(
+      createPickerState({
+        endpointName: 'ops',
+        rows,
+        selection: new Map<string, AccessBits>([['9', { read: true, write: false }]]),
+      }),
+      withSelection([['9', { read: true, write: false }]]),
+    );
+    expect(untouched.diff).toEqual([]);
+  });
+
   it('a removed chat shows in the diff as removed', () => {
     const before = withSelection([['9', { read: true, write: false }]]);
     const after = createPickerState({ endpointName: 'ops', rows });

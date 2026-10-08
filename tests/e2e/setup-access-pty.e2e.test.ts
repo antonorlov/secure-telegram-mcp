@@ -153,6 +153,10 @@ describe.skipIf(process.platform === 'win32')('setup — editing access on a PTY
     expect(await canSend()).toBe(false);
     const session = await openPickerAndGrantWrite();
 
+    // The review the operator confirms against names the escalation it is asking about.
+    expect(session.snapshot()).toContain('read → read + write');
+    expect(session.snapshot()).not.toContain('no changes vs. saved config');
+
     // The name and the Enter go separately: Ink reads a chunk as one input, and a name with
     // a carriage return glued to it is not a submission.
     session.type(ENDPOINT);

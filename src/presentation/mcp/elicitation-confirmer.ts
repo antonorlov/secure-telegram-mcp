@@ -7,9 +7,9 @@
  * Fail-closed by construction:
  *  - Only `action === 'accept'` and the boolean form field set to `true` is treated as
  *    approval; decline / cancel / a falsy field all mean deny.
- *  - If the server is not yet attached, or the client does not support elicitation, or the
- *    request errors, we return `Err` — the use-case then refuses the write (default-deny). The
- *    model can never self-approve.
+ *  - A client that never declared elicitation gets `CONFIRMATION_REQUIRED` without being asked.
+ *    An unattached server or a request that errors returns `Err` as well — the use-case then
+ *    refuses the write (default-deny). The model can never self-approve.
  *
  * The prompt is built only from the structured `ConfirmationRequest` (operator-facing
  * verb/target/description) — never from untrusted Telegram prose — so an injected message
@@ -48,6 +48,18 @@ export class ElicitationConfirmer implements Confirmer {
         appError(
           AppErrorCode.GatewayUnavailable,
           'confirmation channel not ready',
+        ),
+      );
+    }
+
+    // A client that never declared elicitation cannot show the prompt at all. That is a write
+    // which needs a confirmation it cannot get — not an outage — so it is refused as such,
+    // without asking.
+    if (server.server.getClientCapabilities()?.elicitation === undefined) {
+      return err(
+        appError(
+          AppErrorCode.ConfirmationRequired,
+          'this MCP client cannot show confirmation prompts, and writes on this endpoint require one',
         ),
       );
     }

@@ -18,12 +18,16 @@ const REQUEST = {
   description: 'send one message',
 };
 
-// A fake McpServer exposing only the elicitInput seam the confirmer uses.
+// The client's declared capabilities, as `initialize` left them.
+const CAPABLE = { elicitation: {} };
+
+// A fake McpServer exposing only the two seams the confirmer uses.
 const serverAnswering = (
   answer: unknown,
 ): McpServer =>
   ({
     server: {
+      getClientCapabilities: () => CAPABLE,
       elicitInput: (): Promise<unknown> => Promise.resolve(answer),
     },
   }) as unknown as McpServer;
@@ -77,14 +81,37 @@ describe('ElicitationConfirmer — fail-closed decision parsing', () => {
     }
   });
 
-  it('a thrown elicitation (client cannot show the prompt) -> Err, write stays blocked', async () => {
-    const throwing = {
+  it('a client without elicitation -> CONFIRMATION_REQUIRED, and it is never asked', async () => {
+    let asked = 0;
+    const incapable = {
       server: {
-        elicitInput: (): Promise<never> =>
-          Promise.reject(new Error('client does not support elicitation')),
+        getClientCapabilities: () => ({}),
+        elicitInput: (): Promise<never> => {
+          asked += 1;
+          return Promise.reject(new Error('must not be called'));
+        },
       },
     } as unknown as McpServer;
-    const result = await confirmerWith(throwing).requestConfirmation(REQUEST);
+    const result = await confirmerWith(incapable).requestConfirmation(REQUEST);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe(AppErrorCode.ConfirmationRequired);
+    }
+    expect(asked).toBe(0);
+  });
+
+  /**
+   * A capable client whose request fails in transit is a different failure from one that cannot
+   * be asked: nobody declined anything, the channel broke. It stays an outage, and still blocks.
+   */
+  it('a capable client whose request fails in transit -> GATEWAY_UNAVAILABLE, write stays blocked', async () => {
+    const broken = {
+      server: {
+        getClientCapabilities: () => CAPABLE,
+        elicitInput: (): Promise<never> => Promise.reject(new Error('connection closed')),
+      },
+    } as unknown as McpServer;
+    const result = await confirmerWith(broken).requestConfirmation(REQUEST);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.code).toBe(AppErrorCode.GatewayUnavailable);

@@ -21,6 +21,7 @@ import {
   pickerReducer,
   resolveEffective,
   uniqueChatKeys,
+  type AccessBits,
   type ChatRow,
   type PickerAction,
   type PickerSelectionModel,
@@ -73,10 +74,14 @@ const committedFolderUnits = (
   return units;
 };
 
+// The review matrix's own legend: "r = read · rw = read + write".
+const describeBits = (bits: AccessBits): string =>
+  bits.write ? 'read + write' : bits.read ? 'read' : 'no access';
+
 /**
  * Pure: the resolved access matrix comes from the reducer's `resolveEffective` selector, and
- * the diff is computed against the `before` model — per-chat membership and committed folder
- * units alike.
+ * the diff is computed against the `before` model — per-chat membership, per-chat rights and
+ * committed folder units alike.
  */
 export const buildReviewInput = (
   state: PickerState,
@@ -100,6 +105,17 @@ export const buildReviewInput = (
       if (!wasMember) diff.push(`+ ${title} (added to scope)`);
     } else if (wasMember) {
       diff.push(`- ${title} (removed from scope)`);
+    }
+    // A chat that stays selected but changes what the endpoint may do there: granting write is
+    // exactly this, and it is the change the typed-name gate exists for.
+    const was = before.selection.get(key);
+    const now = state.selection.get(key);
+    if (
+      was !== undefined &&
+      now !== undefined &&
+      (was.read !== now.read || was.write !== now.write)
+    ) {
+      diff.push(`~ ${title} (${describeBits(was)} → ${describeBits(now)})`);
     }
   }
 
