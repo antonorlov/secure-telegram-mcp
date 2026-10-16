@@ -4,6 +4,24 @@ All notable changes to this project are documented in this file. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] — 2026-10-16
+
+### Fixed
+
+- Logging out of an account in `setup` also removes the endpoints bound to it.
+  They used to stay in the config and the applied policy, and a later login
+  under the same session name revived them with their old API keys and scope.
+  The session is removed only after the endpoint removal is applied.
+- Endpoints whose session no longer exists appear in Configure endpoints,
+  marked "session '…' not found", and can be deleted there; with no account
+  left, the setup menu offers "Remove orphaned endpoints". The final summary
+  lists them as a warning instead of reporting "Setup complete".
+
+### Changed
+
+- A config with no endpoints is valid and grants no client any access, so the
+  last endpoint can now be deleted.
+
 ## [0.3.1] — 2026-10-08
 
 ### Fixed
