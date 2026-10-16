@@ -415,6 +415,28 @@ describe('endpoint list — only the active account is editable', () => {
       mustNotContain: [OTHER],
     });
   });
+
+  it('shows missing sessions alongside active endpoints and keeps existing other accounts hidden', async () => {
+    await writeFile(join(dir, 'config.json'), JSON.stringify({
+      ...configWithTwoAccounts,
+      endpoints: [
+        ...configWithTwoAccounts.endpoints,
+        { ...configWithTwoAccounts.endpoints[0], name: 'orphan', session: 'gone' },
+      ],
+    }));
+    const recorder = await drive(
+      ['configure', 'endpoint:2', 'back', 'back', 'quit'],
+      optionsFor({
+        posture: 'smooth', hasAccounts: true, accounts: TWO_ACCOUNTS, authenticates: true,
+      }),
+    );
+
+    expect.soft(recorder.at(1)?.labels).toEqual(['main-reader', 'orphan', '+ Add endpoint', 'Back']);
+    expect.soft(recorder.at(1)?.subtitle).toContain('1 on other account(s) hidden');
+    expect.soft(recorder.at(1)?.hints).toContain("session 'gone' not found — delete only");
+    expect.soft(recorder.at(2)?.labels).toEqual(['Delete endpoint (danger)', 'Back']);
+    expect.soft(recorder.at(2)?.subtitle).toBe("session 'gone' not found — delete only");
+  });
 });
 
 describe('endpoint hub — rows follow the endpoint, not the operator', () => {

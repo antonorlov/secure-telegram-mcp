@@ -25,6 +25,7 @@ import {
 export interface EndpointHubDeps {
   readonly ui: SetupUi;
   readonly endpoint: EndpointDraft;
+  readonly sessionMissing?: boolean;
   readonly chats: readonly AccountChatDto[];
   readonly folders: readonly AccountFolderDto[];
   // Returns `false` when the draft write was rejected — a duplicate name, say — and the hub
@@ -121,8 +122,10 @@ export const runEndpointHub = async (deps: EndpointHubDeps): Promise<void> => {
     ];
     const res = await ui.menu<HubChoice>({
       title: `Endpoint "${current.name}"`,
-      subtitle: endpointSummary(current),
-      options,
+      subtitle: endpointSummary(current, deps.sessionMissing),
+      options: deps.sessionMissing
+        ? options.filter(({ value }) => value === 'delete' || value === 'back')
+        : options,
     });
     // Esc/← (cancel) == Back, consistent with the other menus.
     const choice = res.kind === 'selected' ? res.value : 'back';

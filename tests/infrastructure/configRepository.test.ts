@@ -435,16 +435,14 @@ describe('FileConfigRepository — lossless save round-trip + at-rest hardening'
      */
     const domainInvalid: ValidatedConfig = {
       ...base,
-      endpoints: [
-        {
-          ...base.endpoints[0],
-          scope: {
-            chats: [{ kind: 'username', username: 'x' }],
-            folders: [],
-            chatOverrides: [],
-          },
+      endpoints: base.endpoints.map((endpoint) => ({
+        ...endpoint,
+        scope: {
+          chats: [{ kind: 'username', username: 'x' }],
+          folders: [],
+          chatOverrides: [],
         },
-      ],
+      })),
     };
     const path = configPath();
     const repo = new FileConfigRepository({ filePath: path });
@@ -465,9 +463,9 @@ describe('FileConfigRepository — lossless save round-trip + at-rest hardening'
     // re-lints rather than trusting the caller's static types.
     const emptyScope: ValidatedConfig = {
       ...base,
-      endpoints: [
-        { ...base.endpoints[0], scope: { chats: [], folders: [], chatOverrides: [] } },
-      ],
+      endpoints: base.endpoints.map((endpoint) => ({
+        ...endpoint, scope: { chats: [], folders: [], chatOverrides: [] },
+      })),
     };
     const path = configPath();
     const repo = new FileConfigRepository({ filePath: path });
@@ -487,7 +485,7 @@ describe('FileConfigRepository — lossless save round-trip + at-rest hardening'
     const base: ValidatedConfig = configSchema.parse(validConfigObject());
     const duplicated: ValidatedConfig = {
       ...base,
-      endpoints: [base.endpoints[0], base.endpoints[0]],
+      endpoints: [...base.endpoints, ...base.endpoints],
     };
     const path = configPath();
     const repo = new FileConfigRepository({ filePath: path });

@@ -93,6 +93,7 @@ interface ConfigDraft {
 interface EditedConfig {
   readonly draft: ConfigDraft;
   readonly policyApplied: boolean;
+  readonly sessionRefs: readonly string[];
 }
 
 // One explicit endpoint commit. `false` means the draft write itself was rejected.
@@ -109,6 +110,7 @@ interface SealDecision {
 
 interface LoginResult {
   readonly draft: ConfigDraft;
+  readonly sessionRefs: readonly string[];
   readonly sessionRef: string;
   readonly posture: SessionPosture;
   // For a first-run PIN this is the chosen PIN, so returning home does not prompt again.
@@ -127,7 +129,7 @@ interface DeferredOutput {
 
 // Wizard-shell choice menus — each a plain data model rendered by the reusable
 // arrow-nav `MenuScreen` (via `ui.menu`); the shell switches on the returned value.
-type LoggedOutChoice = 'login' | 'quit';
+type LoggedOutChoice = 'login' | 'configure' | 'quit';
 type LoggedInChoice = 'configure' | 'accounts' | 'security' | 'quit';
 
 const DEFAULT_SESSION_REF = 'main';
@@ -311,7 +313,7 @@ export const loadExistingDraft = async (
 
 /**
  * Not a second on-disk codec — serialization stays inside FileConfigRepository, and `save()`
- * re-validates the serialized form fail-closed, so the nonempty-tuple cast below is enforced at
+ * re-validates the serialized form fail-closed, so the nonempty-verbs cast below is enforced at
  * the write gate rather than trusted. Only the salted hash crosses over; the plaintext key is
  * draft-only.
  */
@@ -335,7 +337,7 @@ const draftToConfig = (draft: ConfigDraft): ValidatedConfig => ({
       hitl: { confirmWrites: ep.confirmWrites },
       tokenHash: ep.tokenHash,
     }),
-  ) as ValidatedConfig['endpoints'],
+  ),
 });
 
 // QR rendering — terminal QR + tg:// URL, with a PNG only when terminal rendering fails.
@@ -838,6 +840,7 @@ const doLogin = async (
   }
   return {
     draft: edited.draft,
+    sessionRefs: edited.sessionRefs,
     sessionRef: String(refResult.value),
     posture: decision.posture,
     unlockSource: decision.source,
@@ -847,9 +850,10 @@ const doLogin = async (
 const editEnumeratedAccount = async (
   ui: SetupUi,
   options: SetupOptions,
-  sessionRef: string,
+  sessionRef: string | undefined,
   chats: readonly AccountChatDto[],
   folders: readonly AccountFolderDto[],
+  sessionRefs: readonly string[],
 ): Promise<EditedConfig | undefined> => {
   ui.notify(
     `Found ${String(chats.length)} dialog(s) and ${String(folders.length)} folder(s).`,
@@ -868,23 +872,13 @@ const editEnumeratedAccount = async (
   const draft = draftRes.value;
   let policyApplied = true;
   const commitDraft: CommitDraft = async (current): Promise<boolean> => {
-    const raw = await persistDraft(ui, options, current);
-    if (raw === undefined) return false;
-    /**
-     * A policy failure cannot undo an already-atomic draft write, and a teardown failure can
-     * arrive after publication — so report uncertainty rather than claiming the saved policy is
-     * definitely inactive.
-     */
-    policyApplied = await applySavedConfig(ui, options.operatorClient, raw);
-    if (!policyApplied) {
-      ui.notify(
-        'Config was saved, but live apply was not confirmed; resolve the error, then restart Telegram MCP or retry Apply config changes.',
-      );
-    }
+    const applied = await saveAndApplyDraft(ui, options, current);
+    if (applied === undefined) return false;
+    policyApplied = applied;
     return true;
   };
-  await editLoop(ui, draft, chats, folders, sessionRef, commitDraft);
-  return { draft, policyApplied };
+  await editLoop(ui, draft, chats, folders, sessionRef, sessionRefs, commitDraft);
+  return { draft, policyApplied, sessionRefs };
 };
 
 // Enumerate the account's dialogs and folders, then run the endpoint editor over them.
@@ -900,34 +894,48 @@ const snapshotAndEdit = async (
     ui.notify(`Could not read the account: ${snapshot.error}`);
     return undefined;
   }
+  const listed = await options.operatorClient.listAccounts();
+  if (isErr(listed)) {
+    ui.notify(`Cannot read saved accounts: ${listed.error}.`);
+    return undefined;
+  }
   return editEnumeratedAccount(
     ui,
     options,
     ref,
     snapshot.value.chats,
     snapshot.value.folders,
+    listed.value.accounts.map((account) => account.sessionRef),
   );
 };
+
+/**
+ * An endpoint bound to a session that is no longer on disk. Inert now, but a later login that
+ * reuses the session name would revive it with its old key and scope.
+ */
+const isSessionMissing = (
+  ep: EndpointDraft,
+  sessionRefs: readonly string[],
+): boolean => !sessionRefs.includes(ep.session);
 
 const editLoop = async (
   ui: SetupUi,
   draft: ConfigDraft,
   chats: readonly AccountChatDto[],
   folders: readonly AccountFolderDto[],
-  sessionRef: string,
+  sessionRef: string | undefined,
+  sessionRefs: readonly string[],
   commitDraft: CommitDraft,
 ): Promise<void> => {
   let editing = true;
   while (editing) {
     /**
-     * Only the ACTIVE account's endpoints are editable rows: the chat enumeration behind the
-     * picker covers this account only, so committing an edit to an endpoint bound to another
-     * session would silently replace its scope with this account's picks. Other-account
-     * endpoints stay in the draft untouched.
+     * Only the active account's access can be edited. Missing sessions are shown for deletion;
+     * endpoints of other existing accounts stay hidden because their chats are not enumerated.
      */
     const editable = draft.endpoints
       .map((ep, i) => ({ ep, i }))
-      .filter(({ ep }) => ep.session === sessionRef);
+      .filter(({ ep }) => ep.session === sessionRef || isSessionMissing(ep, sessionRefs));
     const hiddenCount = draft.endpoints.length - editable.length;
     // The endpoints are the menu rows. There is no list-level "Save" row: each
     // completed field edit commits immediately; Back/Esc/← only leaves the list.
@@ -935,9 +943,11 @@ const editLoop = async (
       ...editable.map(({ ep, i }) => ({
         value: `${ENDPOINT_ROW_PREFIX}${String(i)}`,
         label: ep.name,
-        hint: endpointSummary(ep),
+        hint: endpointSummary(ep, isSessionMissing(ep, sessionRefs)),
       })),
-      { value: 'add', label: '+ Add endpoint', hint: 'create a new virtual group' },
+      ...(sessionRef !== undefined
+        ? [{ value: 'add', label: '+ Add endpoint', hint: 'create a new virtual group' }]
+        : []),
       { value: 'back', label: 'Back', hint: 'finish endpoint editing' },
     ];
     const hiddenNote =
@@ -947,9 +957,11 @@ const editLoop = async (
     const result = await ui.menu<string>({
       title: 'Endpoints — your virtual groups',
       subtitle:
-        editable.length === 0
-          ? `No endpoints for this account yet — add one to scope an MCP client · saves apply immediately${hiddenNote}`
-          : `${String(editable.length)} endpoint(s) — select to edit/delete · Back/Esc when done${hiddenNote}`,
+        sessionRef === undefined
+          ? `${String(editable.length)} orphaned endpoint(s) — select to delete · Back/Esc when done`
+          : editable.length === 0
+            ? `No endpoints for this account yet — add one to scope an MCP client · saves apply immediately${hiddenNote}`
+            : `${String(editable.length)} endpoint(s) — select to edit/delete · Back/Esc when done${hiddenNote}`,
       options: menuOptions,
     });
     // Esc/← (cancel) leaves the list; the config is already persisted.
@@ -957,7 +969,7 @@ const editLoop = async (
 
     if (choice === 'back') {
       editing = false;
-    } else if (choice === 'add') {
+    } else if (choice === 'add' && sessionRef !== undefined) {
       const created = await editEndpoint(
         ui,
         draft.endpoints.map((e) => e.name),
@@ -983,7 +995,7 @@ const editLoop = async (
       }
     } else if (choice.startsWith(ENDPOINT_ROW_PREFIX)) {
       const idx = Number(choice.slice(ENDPOINT_ROW_PREFIX.length));
-      await editSelectedEndpoint(ui, draft, idx, chats, folders, commitDraft);
+      await editSelectedEndpoint(ui, draft, idx, chats, folders, sessionRefs, commitDraft);
     }
   }
 };
@@ -999,6 +1011,7 @@ const editSelectedEndpoint = async (
   idx: number,
   chats: readonly AccountChatDto[],
   folders: readonly AccountFolderDto[],
+  sessionRefs: readonly string[],
   commitDraft: CommitDraft,
 ): Promise<void> => {
   const current = draft.endpoints[idx];
@@ -1008,6 +1021,7 @@ const editSelectedEndpoint = async (
   await runEndpointHub({
     ui,
     endpoint: current,
+    sessionMissing: isSessionMissing(current, sessionRefs),
     chats,
     folders,
     apply: async (updated): Promise<boolean> => {
@@ -1024,7 +1038,7 @@ const editSelectedEndpoint = async (
       draft.endpoints.splice(idx, 1);
       const ok = await commitDraft(draft);
       if (!ok && removed !== undefined) {
-        // The write was rejected — deleting the last endpoint, say, which the schema forbids.
+        // The write was rejected.
         // Restore it so the in-memory draft never drifts ahead of disk.
         draft.endpoints.splice(idx, 0, removed);
       }
@@ -1083,6 +1097,24 @@ const persistDraft = async (
     return undefined;
   }
   return result.value;
+};
+
+// `undefined` means the draft write was rejected; otherwise the result confirms live apply.
+const saveAndApplyDraft = async (
+  ui: SetupUi,
+  options: SetupOptions,
+  draft: ConfigDraft,
+): Promise<boolean | undefined> => {
+  const raw = await persistDraft(ui, options, draft);
+  if (raw === undefined) return undefined;
+  // Apply can fail after publication, so do not claim the saved policy is definitely inactive.
+  const applied = await applySavedConfig(ui, options.operatorClient, raw);
+  if (!applied) {
+    ui.notify(
+      'Config was saved, but live apply was not confirmed; resolve the error, then restart Telegram MCP or retry Apply config changes.',
+    );
+  }
+  return applied;
 };
 
 const authenticateOperator = async (
@@ -1172,8 +1204,13 @@ const buildClientConfigOutput = (
   const fresh: { readonly name: string; readonly server: Record<string, unknown> }[] =
     [];
   const existing: string[] = [];
+  const missing: string[] = [];
   let anyHardened = false;
   for (const ep of result.draft.endpoints) {
+    if (isSessionMissing(ep, result.sessionRefs)) {
+      missing.push(`${ep.name} (session '${ep.session}' not found)`);
+      continue;
+    }
     /**
      * The API key alone selects and authorizes the endpoint. Paths appear only when the
      * operator overrode the central home, and are absolute, since clients spawn `connect` from
@@ -1229,13 +1266,19 @@ const buildClientConfigOutput = (
       '',
     );
   }
+  if (missing.length > 0) {
+    lines.push(
+      `Endpoints with missing sessions — delete them in Configure endpoints: ${missing.join(', ')}`,
+      '',
+    );
+  }
   if (anyHardened) {
     lines.push(
       "HARDENED: run 'npx secure-telegram-mcp start' to unlock after boot or idle.",
       '',
     );
   }
-  lines.push('Setup complete.', '');
+  lines.push(missing.length > 0 ? 'Setup finished with missing-session warnings.' : 'Setup complete.', '');
 
   // Machine surface: a piped STDOUT gets the freshly minted entries as one parseable
   // bundle; a TTY gets nothing on STDOUT — humans copy the per-endpoint blocks above.
@@ -1327,6 +1370,7 @@ const configureExistingSession = async (
   }
   const result: LoginResult = {
     draft: edited.draft,
+    sessionRefs: edited.sessionRefs,
     sessionRef: ref,
     posture: inferPostureFromSource(source),
     unlockSource: source,
@@ -1376,6 +1420,55 @@ const runAccountsMenu = async (
   return { kind: 'back' };
 };
 
+/**
+ * Removes the session AND the endpoints bound to it. The endpoints are revoked first, and the
+ * session goes only once their removal is applied, so no old key is left behind for a later login
+ * that reuses the session name; a retry after a failure finishes the job.
+ */
+const logOutAccount = async (
+  ui: SetupUi,
+  options: SetupOptions,
+  source: SessionKeySource,
+  ref: SessionRefValue,
+  label: string,
+  deferred: DeferredOutput,
+): Promise<void> => {
+  const loaded = await loadExistingDraft(options.configPath);
+  if (isErr(loaded)) {
+    ui.notify(`Cannot log out: ${loaded.error}`);
+    process.exitCode = 1;
+    return;
+  }
+  const draft = loaded.value;
+  const remaining = draft.endpoints.filter((ep) => ep.session !== ref);
+  const count = draft.endpoints.length - remaining.length;
+  const confirmed = await promptConfirm(ui, {
+    title: `Log out of ${label} and remove session '${ref}' and ${String(count)} bound endpoint(s) from this machine?`,
+    defaultValue: false,
+  });
+  if (!confirmed) return;
+  if (!(await authenticateOperator(ui, options.operatorClient, source))) {
+    process.exitCode = 1;
+    return;
+  }
+  // The endpoint summary deferred by an earlier configure no longer matches the saved config.
+  deferred.stdout = '';
+  deferred.stderr = '';
+  draft.endpoints = remaining;
+  if ((await saveAndApplyDraft(ui, options, draft)) !== true) {
+    ui.notify(`Log out stopped; session '${ref}' was not removed.`);
+    process.exitCode = 1;
+    return;
+  }
+  const removed = await options.operatorClient.removeAccount(String(ref));
+  if (isErr(removed)) {
+    ui.notify(`Bound endpoints removed and applied, but session removal was not confirmed: ${removed.error}`);
+    process.exitCode = 1;
+    return;
+  }
+  ui.notify(`Logged out of ${label}; removed ${String(count)} bound endpoint(s).`);
+};
+
 // The wizard's state-aware main-menu loop, driven against the `SetupUi` port.
 const runMainMenu = async (
   ui: SetupUi,
@@ -1415,13 +1508,20 @@ const runMainMenu = async (
       if (warning !== undefined) ui.notify(warning);
     }
 
-    // NOT LOGGED IN — no session file on disk. Only login/quit; drop any unlock.
+    // NOT LOGGED IN — missing sessions may still have endpoints to revoke.
     if (!status.value.hasAccounts) {
       clearUnlock();
+      const loaded = await loadExistingDraft(options.configPath);
+      const hasEndpoints = isOk(loaded) && loaded.value.endpoints.length > 0;
       const result = await ui.menu<LoggedOutChoice>({
         title: 'Secure Telegram MCP — setup',
         subtitle: 'Not logged in yet',
-        options: LOGGED_OUT_MENU,
+        options: hasEndpoints
+          ? [
+              { value: 'configure', label: 'Remove orphaned endpoints', hint: 'their sessions no longer exist' },
+              ...LOGGED_OUT_MENU,
+            ]
+          : LOGGED_OUT_MENU,
       });
       const choice = result.kind === 'selected' ? result.value : 'quit';
       if (choice === 'login') {
@@ -1431,6 +1531,14 @@ const runMainMenu = async (
           deferred,
           status.value.posture,
         );
+      } else if (choice === 'configure') {
+        const source = status.value.posture === 'hardened'
+          ? await authenticateHardenedOperator(ui, operator, options.sessionKey)
+          : options.sessionKey;
+        if (source !== undefined && await authenticateOperator(ui, operator, source)) {
+          const edited = await editEnumeratedAccount(ui, options, undefined, [], [], []);
+          if (!edited?.policyApplied) process.exitCode = 1;
+        }
       } else {
         running = false;
       }
@@ -1556,19 +1664,7 @@ const runMainMenu = async (
             unlockedSource = source;
           }
         } else if (outcome.kind === 'logout') {
-          const confirmed = await promptConfirm(ui, {
-            title: `Log out of ${activeLabel} and remove session '${activeRef}' from this machine?`,
-            defaultValue: false,
-          });
-          if (confirmed) {
-            const removed = await operator.removeAccount(String(activeRef));
-            const removalError = isErr(removed) ? removed.error : undefined;
-            if (removalError !== undefined) {
-              ui.notify(`Could not remove session: ${removalError}`);
-            } else {
-              ui.notify(`Logged out of ${activeLabel}.`);
-            }
-          }
+          await logOutAccount(ui, options, unlockedSource, activeRef, activeLabel, deferred);
         }
         break;
       }

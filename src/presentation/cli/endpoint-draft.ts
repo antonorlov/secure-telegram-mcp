@@ -96,7 +96,8 @@ export const grantsWriteVerbs = (access: {
 
 // `confirmWrites` is shown only when the endpoint can write; for a read-only endpoint it is
 // irrelevant.
-export const endpointSummary = (ep: EndpointDraft): string => {
+export const endpointSummary = (ep: EndpointDraft, sessionMissing = false): string => {
+  if (sessionMissing) return `session '${ep.session}' not found — delete only`;
   const base =
     `@${ep.session} · ${ep.verbs.join('/')} · ${String(ep.chats.length)} chats · ` +
     `${String(ep.folders.length)} folders`;

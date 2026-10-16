@@ -175,9 +175,8 @@ export const configSchema = z
     version: z.literal(1),
     killSwitch: killSwitchSchema,
     maxDownloadBytes: maxDownloadBytesSchema,
-    endpoints: z
-      .array(endpointSchema)
-      .nonempty('at least one endpoint must be defined'),
+    // Removing the last endpoint leaves an explicit deny-all policy.
+    endpoints: z.array(endpointSchema),
   })
   .strict()
   .superRefine((cfg, ctx) => {

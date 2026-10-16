@@ -78,17 +78,17 @@ describe('configSchema', () => {
     expect(parsed.success).toBe(true);
     if (parsed.success) {
       const ep = parsed.data.endpoints[0];
-      expect(ep.scope.chats).toEqual([
+      expect(ep?.scope.chats).toEqual([
         { kind: 'me' },
         { kind: 'username', username: 'somechannel' },
         idRef('-1001234567890'),
       ]);
-      expect(ep.scope.folders).toEqual([
+      expect(ep?.scope.folders).toEqual([
         { kind: 'id', id: 2 },
         { kind: 'title', title: 'Work' },
       ]);
       // HITL is opt-in per endpoint; defaults to off.
-      expect(ep.hitl.confirmWrites).toBe(false);
+      expect(ep?.hitl.confirmWrites).toBe(false);
     }
   });
 
@@ -178,7 +178,7 @@ describe('configSchema — per-chat verb overrides (additive, non-breaking)', ()
     const parsed = configSchema.safeParse(validConfig);
     expect(parsed.success).toBe(true);
     if (parsed.success) {
-      expect(parsed.data.endpoints[0].scope.chatOverrides).toEqual([]);
+      expect(parsed.data.endpoints[0]?.scope.chatOverrides).toEqual([]);
     }
   });
 
@@ -201,7 +201,7 @@ describe('configSchema — per-chat verb overrides (additive, non-breaking)', ()
     });
     expect(parsed.success).toBe(true);
     if (parsed.success) {
-      expect(parsed.data.endpoints[0].scope.chatOverrides).toEqual([
+      expect(parsed.data.endpoints[0]?.scope.chatOverrides).toEqual([
         { peer: idRef('-1001234567890'), verbs: ['read', 'send'] },
         { peer: { kind: 'me' }, verbs: ['read'] },
       ]);
@@ -268,7 +268,7 @@ describe('configSchema — per-chat verb overrides (additive, non-breaking)', ()
     });
     expect(parsed.success).toBe(true);
     if (parsed.success) {
-      const overrides = parsed.data.endpoints[0].scope.chatOverrides;
+      const overrides = parsed.data.endpoints[0]?.scope.chatOverrides ?? [];
       // every authored key is preserved (round-trip-stable identity set).
       expect(overrides).toHaveLength(Object.keys(keys).length);
       expect(overrides.map((o) => o.peer)).toEqual(

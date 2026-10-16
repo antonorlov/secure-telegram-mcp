@@ -300,6 +300,7 @@ const makeOperator = (): OperatorClientPort => {
           apiHash: pending.apiHash,
         },
       });
+      H.state.existing = true;
       return Promise.resolve({ ok: true, value: { sessionRef } });
     },
     cancelLogin: () => Promise.resolve({ ok: true, value: { accepted: true } }),
